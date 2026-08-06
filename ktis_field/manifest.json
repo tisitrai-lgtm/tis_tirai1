@@ -1,0 +1,20 @@
+{
+  "name": "TIS SMART FIELD",
+  "short_name": "TIS FIELD",
+  "start_url": "login.php",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#e11d48",
+  "icons": [
+    {
+      "src": "icon/iconweb.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon/iconweb.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

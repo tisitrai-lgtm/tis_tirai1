@@ -1,0 +1,189 @@
+@import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --primary: #1e3a8a;
+    --primary-light: #3b82f6;
+    --accent: #d97706; /* Darker amber for contrast */
+    --glass-bg: #ffffff;
+    --glass-border: #e2e8f0;
+    --glass-shadow: 0 4px 15px 0 rgba(0, 0, 0, 0.05);
+    --text-main: #111827;
+    --text-white: #fff;
+    --bg-gradient: #ffffff; /* Pure white background */
+}
+
+/* Bootstrap Color Overrides */
+.text-primary { color: var(--primary) !important; }
+.bg-primary { background-color: var(--primary) !important; }
+.btn-primary { background: var(--bg-gradient); border: none; }
+.btn-outline-primary { color: var(--primary); border-color: var(--primary); }
+.btn-outline-primary:hover { background-color: var(--primary); color: white; }
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Kanit', sans-serif;
+    background-image: url('icon/bg.jpg');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+    color: var(--text-main);
+    min-height: 100vh;
+    font-size: 1.15rem;
+    line-height: 1.6;
+    position: relative;
+    z-index: 0;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(20, 83, 45, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    z-index: -1;
+}
+
+/* Simplified Components for Readability */
+.glass-card {
+    background: var(--glass-bg);
+    border-radius: 20px;
+    border: 2px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    padding: 2.5rem;
+    color: var(--text-main);
+}
+
+.glass-card-white {
+    background: #ffffff;
+    border-radius: 20px;
+    border: 2px solid #e2e8f0;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+    padding: 2.5rem;
+    color: var(--text-main);
+}
+
+/* Buttons */
+.btn-premium {
+    background: var(--primary);
+    border: none;
+    color: white;
+    padding: 12px 30px;
+    border-radius: 15px;
+    font-weight: 600;
+    font-size: 1.15rem;
+    transition: all 0.3s ease;
+    box-shadow: 0 5px 15px rgba(30, 58, 138, 0.2);
+}
+
+.btn-premium:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(30, 58, 138, 0.3);
+    color: white;
+    background: #1e40af;
+}
+
+.btn-glass {
+    background: #ffffff;
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    border-radius: 12px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-glass:hover {
+    background: var(--primary);
+    color: white;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.6s ease-out forwards;
+}
+
+/* Navbar Tuning */
+.navbar-custom {
+    background: rgba(255, 255, 255, 0.1) !important;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* DataTables Styling Overrides */
+.dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: var(--bg-gradient) !important;
+    border: none !important;
+    color: white !important;
+    border-radius: 8px !important;
+}
+
+table.dataTable {
+    border-collapse: separate !important;
+    border-spacing: 0 8px !important;
+}
+
+table.dataTable tbody tr {
+    background-color: white !important;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    border-radius: 8px;
+    transition: transform 0.2s;
+}
+
+table.dataTable tbody tr:hover {
+    transform: scale(1.01);
+    background-color: #ffffff !important;
+}
+
+table.dataTable tbody td {
+    padding: 15px !important;
+    border: none !important;
+}
+
+table.dataTable thead th {
+    background-color: #ffffff !important;
+    color: var(--text-main) !important;
+    border-bottom: 3px solid var(--primary) !important;
+    font-weight: 700;
+    padding: 15px !important;
+}
+
+/* Mobile Responsive Tweaks */
+@media (max-width: 768px) {
+    .glass-card, .glass-card-white {
+        padding: 1.25rem !important;
+        border-radius: 12px;
+    }
+
+    h1, h2 { font-size: 1.5rem !important; }
+    h3, h4 { font-size: 1.25rem !important; }
+
+    .btn-premium {
+        padding: 8px 20px !important;
+        font-size: 0.95rem;
+    }
+
+    .navbar-custom {
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    .container {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+    }
+
+    /* Table alignment for mobile */
+    .dataTables_wrapper {
+        font-size: 0.85rem;
+    }
+}

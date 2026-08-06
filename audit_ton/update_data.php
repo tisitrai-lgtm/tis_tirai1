@@ -1,0 +1,264 @@
+<?php
+// update_data.php - สคริปต์สำหรับจัดการการอัปเดตข้อมูลและรูปภาพจาก edit_data.php
+session_start();
+require_once 'db_connect.php'; // ตรวจสอบให้แน่ใจว่าไฟล์นี้ถูกต้อง
+
+// 🚨 ฟังก์ชัน Sanitize ชื่อโฟลเดอร์ (รองรับภาษาไทย)
+function sanitizeFolderName($name) {
+    if (empty($name)) return '';
+    $name = trim($name);
+    $name = str_replace(' ', '-', $name);
+    // รองรับภาษาไทยและตัวอักษร Unicode
+    $name = preg_replace('/[^\p{L}\p{N}_-]/u', '', $name); 
+    $name = preg_replace('/-+/', '-', $name);
+    return trim($name, '-');
+}
+
+// 🚨 ฟังก์ชันสำหรับจัดการการอัปโหลดรูปภาพ (คัดลอกมาจากที่คุณให้มา)
+function uploadImage($file, $baseDir, $imageTypeFolder) {
+    if (!isset($file) || $file['error'] !== UPLOAD_ERR_OK) {
+        return ''; // ไม่มีไฟล์อัปโหลด หรือมีข้อผิดพลาด
+    }
+
+    $uploadDir = $baseDir . $imageTypeFolder . '/';
+
+    // ตรวจสอบและสร้างโฟลเดอร์ถ้ายังไม่มี
+    if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0777, true)) { // recursive true เพื่อสร้างโฟลเดอร์ย่อยทั้งหมด
+            error_log("Failed to create directory: " . $uploadDir);
+            return ''; // สร้างโฟลเดอร์ไม่สำเร็จ
+        }
+    }
+
+    $fileName = basename($file['name']);
+    // สร้างชื่อไฟล์ที่ไม่ซ้ำกันเพื่อป้องกันการทับซ้อน
+    // 🚨 ปรับปรุงการสร้างชื่อไฟล์ให้คล้ายกับโค้ดเดิม: ใช้ uniqid() และ time() เพื่อให้ชื่อไฟล์เป็นมาตรฐาน
+    $ext = pathinfo($fileName, PATHINFO_EXTENSION);
+    $newFileName = uniqid() . '-' . time() . '.' . $ext;
+    
+    $targetFilePath = $uploadDir . $newFileName;
+
+    if (move_uploaded_file($file['tmp_name'], $targetFilePath)) {
+        return $newFileName; // คืนเฉพาะชื่อไฟล์ใหม่ที่บันทึกใน DB
+    } else {
+        error_log("Failed to move uploaded file to: " . $targetFilePath);
+        return ''; // ย้ายไฟล์ไม่สำเร็จ
+    }
+}
+
+// 🚨 ฟังก์ชันสำหรับลบไฟล์รูปภาพ (คัดลอกมาจากที่คุณให้มา)
+function deleteImageFile($filename, $production_year, $agency, $contract_number, $plot_id, $image_type_folder) {
+    if (empty($filename)) {
+        return;
+    }
+    // Note: ใช้ sanitizeFolderName แทน preg_replace() เพื่อให้ consistency ในสคริปต์
+    $sanitized_production_year = sanitizeFolderName($production_year);
+    $sanitized_agency = sanitizeFolderName($agency);
+    $sanitized_contract_number = sanitizeFolderName($contract_number);
+    $sanitized_plot_id = sanitizeFolderName($plot_id);
+
+    // 🚨 ตรวจสอบว่า "ton_aoi/" ถูกเพิ่มเข้ามาใน basePath หรือไม่ (ขึ้นอยู่กับการตั้งค่า)
+    // ผมสมมติว่า Path ถูกเริ่มที่ uploads/ เหมือนกับที่ใช้ในสคริปต์เก่า
+    $basePath = "ton_aoi/uploads/{$sanitized_production_year}/{$sanitized_agency}/{$sanitized_contract_number}/{$sanitized_plot_id}/";
+    $filePath = $basePath . $image_type_folder . '/' . $filename;
+
+    if (file_exists($filePath) && is_file($filePath)) {
+        unlink($filePath); // ลบไฟล์
+        // error_log("Deleted file: " . $filePath); // บันทึกใน log เพื่อการดีบัก
+    } else {
+        // error_log("File not found for deletion: " . $filePath);
+    }
+}
+
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    die("Invalid request method.");
+}
+
+// -----------------------------------------------------------
+// 1. รับค่าตัวแปรจากฟอร์ม edit_data.php
+// -----------------------------------------------------------
+$record_id = $_POST['id'] ?? null; // Primary Key ของแถว
+$old_plot_id = $_POST['old_plot_id'] ?? null; // ID แปลงเดิม (สำหรับอ้างอิง)
+
+$plot_id = $_POST['plot_id'] ?? null;
+$emp_number = $_POST['emp_number'] ?? null;
+$contract_number = $_POST['contract_number'] ?? null;
+$quota = $_POST['quota'] ?? null;
+$agency = $_POST['agency'] ?? null;
+$suga_type = $_POST['suga_type'] ?? null;
+$rai_area = $_POST['rai_area'] ?? null;
+$notes = $_POST['notes'] ?? null;
+$production_year = $_POST['production_year'] ?? null;
+$ton_rai = $_POST['ton_rai'] ?? null;
+
+if (!$record_id) {
+    die("Missing record ID.");
+}
+
+// -----------------------------------------------------------
+// 2. สร้าง Path พื้นฐานสำหรับอัปโหลด
+// -----------------------------------------------------------
+$image_base_url = "ton_aoi/"; 
+$sanitized_year = sanitizeFolderName($production_year);
+$sanitized_agency = sanitizeFolderName($agency);
+$sanitized_contract = sanitizeFolderName($contract_number);
+$sanitized_plot = sanitizeFolderName($plot_id);
+
+// Base Path สำหรับการอัปโหลดไฟล์ใหม่ ( Path นี้จะถูกส่งไปให้ uploadImage() )
+$baseUploadDir = "{$image_base_url}uploads/{$sanitized_year}/{$sanitized_agency}/{$sanitized_contract}/{$sanitized_plot}/";
+
+
+// -----------------------------------------------------------
+// 3. กำหนดรายการรูปภาพทั้งหมดและจัดการการอัปโหลด/ลบ
+// -----------------------------------------------------------
+$image_fields = [
+    // [ชื่อคอลัมน์] => [โฟลเดอร์ย่อย]
+    "estimate_ton_1" => "estimate_ton",
+    "estimate_ton_2" => "estimate_ton",
+    "evaluate_ton_1" => "evaluate_ton",
+    "evaluate_ton_2" => "evaluate_ton",
+    "remaining_cane_1_img_1" => "remaining_cane_1",
+    "remaining_cane_1_img_2" => "remaining_cane_1",
+    "remaining_cane_2_img_1" => "remaining_cane_2",
+    "remaining_cane_2_img_2" => "remaining_cane_2",
+    "remaining_cane_3_img_1" => "remaining_cane_3",
+    "remaining_cane_3_img_2" => "remaining_cane_3",
+];
+
+$update_images = [];
+$upload_errors = [];
+
+foreach ($image_fields as $db_column => $subfolder) {
+    $existing_name = $_POST['existing_' . $db_column] ?? null;
+    $new_file_uploaded = isset($_FILES[$db_column]) && $_FILES[$db_column]['error'] === UPLOAD_ERR_OK;
+    
+    // A. มีการอัปโหลดไฟล์ใหม่
+    if ($new_file_uploaded) {
+        $new_filename = uploadImage($_FILES[$db_column], $baseUploadDir, $subfolder);
+        
+        if (empty($new_filename)) {
+            $upload_errors[] = "Failed to upload new file for " . $db_column;
+            $update_images[$db_column] = $existing_name; // ใช้ชื่อเดิมถ้าอัปโหลดล้มเหลว
+        } else {
+            $update_images[$db_column] = $new_filename;
+            
+            // ลบไฟล์เก่าถ้ามี
+            if (!empty($existing_name)) {
+                deleteImageFile(
+                    $existing_name, 
+                    $production_year, 
+                    $agency, 
+                    $contract_number, 
+                    $old_plot_id, // ใช้ ID แปลงเดิม เพราะไฟล์เดิมถูกเก็บใน Path เดิม
+                    $subfolder
+                );
+            }
+        }
+    } 
+    // B. ไม่มีไฟล์ใหม่ถูกอัปโหลด
+    else {
+        // ตรวจสอบจาก existing_name ที่ถูกส่งมาจากฟอร์ม
+        // ถ้าถูกลบผ่าน AJAX, existing_name จะเป็นค่าว่างแล้ว
+        // ถ้ายังไม่ได้ถูกลบ, existing_name จะมีค่า
+        $update_images[$db_column] = !empty($existing_name) ? $existing_name : null;
+    }
+}
+
+// ถ้ามี error ในการอัปโหลดไฟล์ ควรหยุดการทำงาน
+if (!empty($upload_errors)) {
+    die("File Upload Errors: " . implode(", ", $upload_errors));
+}
+
+
+// -----------------------------------------------------------
+// 4. เตรียมและรัน SQL UPDATE
+// -----------------------------------------------------------
+$sql = "UPDATE cane_plot_data SET 
+            plot_id = ?,
+            emp_number = ?,
+            contract_number = ?,
+            quota = ?,
+            agency = ?,
+            suga_type = ?,
+            rai_area = ?,
+            notes = ?,
+            ton_rai = ?,
+            estimate_ton_1 = ?,
+            estimate_ton_2 = ?,
+            evaluate_ton_1 = ?,
+            evaluate_ton_2 = ?,
+            remaining_cane_1_img_1 = ?,
+            remaining_cane_1_img_2 = ?,
+            remaining_cane_2_img_1 = ?,
+            remaining_cane_2_img_2 = ?,
+            remaining_cane_3_img_1 = ?,
+            remaining_cane_3_img_2 = ? 
+        WHERE id = ?";
+
+$stmt = $conn->prepare($sql);
+
+if (!$stmt) {
+    die("Prepare failed: " . $conn->error);
+}
+
+// Bind Parameters (ประเภท: sssssisssssssssssi - s = string, i = integer)
+$params = [
+    $plot_id,
+    $emp_number,
+    $contract_number,
+    $quota,
+    $agency,
+    $suga_type,
+    $rai_area,
+    $notes,
+    $ton_rai,
+    $update_images['estimate_ton_1'],
+    $update_images['estimate_ton_2'],
+    $update_images['evaluate_ton_1'],
+    $update_images['evaluate_ton_2'],
+    $update_images['remaining_cane_1_img_1'],
+    $update_images['remaining_cane_1_img_2'],
+    $update_images['remaining_cane_2_img_1'],
+    $update_images['remaining_cane_2_img_2'],
+    $update_images['remaining_cane_3_img_1'],
+    $update_images['remaining_cane_3_img_2'],
+    $record_id // <-- ตัวสุดท้าย
+];
+
+$types = "ssssssdsdssssssssssi"; // เปลี่ยนตำแหน่ง 7 (rai_area) และ 9 (ton_rai) เป็น d (double)
+
+$stmt->bind_param($types, ...$params);
+
+
+
+if ($stmt->execute()) {
+    $stmt->close();
+    
+    // 5. กรณีที่ Plot ID ถูกเปลี่ยน ต้องย้ายโฟลเดอร์รูปภาพหลัก
+    if ($old_plot_id !== $plot_id) {
+        $old_sanitized_plot = sanitizeFolderName($old_plot_id);
+        
+        // สร้าง Path โดยใช้ข้อมูลเดิมและข้อมูลใหม่ที่ถูก Sanitize แล้ว
+        $old_base_dir = "{$image_base_url}uploads/{$sanitized_year}/{$sanitized_agency}/{$sanitized_contract}/{$old_sanitized_plot}";
+        $new_base_dir = "{$image_base_url}uploads/{$sanitized_year}/{$sanitized_agency}/{$sanitized_contract}/{$sanitized_plot}";
+
+        // ตรวจสอบและย้ายโฟลเดอร์หลัก
+        if (is_dir($old_base_dir) && $old_base_dir !== $new_base_dir) {
+            // ใช้ rename() เพื่อย้าย/เปลี่ยนชื่อโฟลเดอร์
+            if (!rename($old_base_dir, $new_base_dir)) {
+                error_log("Failed to rename directory from {$old_base_dir} to {$new_base_dir}");
+            }
+        }
+    }
+
+    // Redirect กลับไปที่ dashboard พร้อมข้อความสำเร็จ
+    header("Location: dashboard.php?year=" . urlencode($production_year) . "&success=update");
+    exit();
+} else {
+    $stmt->close();
+    die("Execute failed: " . $stmt->error);
+}
+
+$conn->close();
+?>

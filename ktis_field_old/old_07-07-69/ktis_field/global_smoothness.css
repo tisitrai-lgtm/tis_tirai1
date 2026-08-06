@@ -1,0 +1,33 @@
+/* ══════════════════════════════════════
+   [Global UI Smoothness]
+   เพิ่มความนุ่มนวลในการเปลี่ยนหน้าเว็บและกดปุ่ม
+   ══════════════════════════════════════ */
+
+/* อนิเมชันเมื่อโหลดหน้าใหม่ ช่วยลดอาการจอกะพริบโดยไม่ให้หน้าจอเป็นสีขาว */
+body {
+    animation: smoothPageLoad 0.3s ease-out forwards !important;
+}
+
+@keyframes smoothPageLoad {
+    from { opacity: 0.6; }
+    to { opacity: 1; }
+}
+
+/* ทำให้ลิงก์และปุ่มทั้งหมดมีการเปลี่ยนสถานะแบบนุ่มนวล โดยบังคับทับ (Override) CSS เดิมที่ฝังในแต่ละหน้า */
+button, a, input[type="submit"], input[type="button"], .btn-submit, .btn-search, .btn-toggle-form, .btn-logout, .tab-item {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* เอฟเฟกต์การกดยุบตัวลงไปเล็กน้อย (Active state) สำหรับปุ่มต่างๆ */
+button:active, a:active, input[type="submit"]:active, .btn-search:active, .btn-submit:active, .btn-toggle-form:active, .tab-item:active {
+    transform: scale(0.96) !important;
+}
+
+/* กล่อง (Cards) เด้งและมีเงาเล็กน้อยเวลาเอาเมาส์ไปชี้ */
+.filter-card, .feed-card, .history-card, .form-card, .login-card {
+    transition: box-shadow 0.3s ease, transform 0.3s ease !important;
+}
+.filter-card:hover, .feed-card:hover {
+    box-shadow: 0 8px 16px rgba(0,0,0,0.06) !important;
+    transform: translateY(-2px) !important;
+}

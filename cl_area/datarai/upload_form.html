@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>อัปโหลดไฟล์ CSV</title>
+</head>
+<body>
+    <h1>นำเข้าข้อมูลจากไฟล์ CSV</h1>
+    <form action="import_data.php" method="post" enctype="multipart/form-data">
+        เลือกไฟล์ CSV ที่จะนำเข้า:
+        <input type="file" name="csv_file" id="csv_file" required>
+        <br><br>
+        <input type="submit" value="อัปโหลดและนำเข้าข้อมูล" name="submit">
+    </form>
+</body>
+</html>

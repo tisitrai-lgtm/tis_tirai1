@@ -1,0 +1,247 @@
+/* style_index.css */
+
+/* ----------------------------------------------------- */
+/* Global Reset & Body Styling - รีเซ็ตและสไตล์พื้นฐาน */
+/* ----------------------------------------------------- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif; /* ฟอนต์ที่ดูทันสมัยและอ่านง่าย */
+    background-color: #f8f9fa; /* สีพื้นหลังที่สะอาดและสว่าง */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: #343a40; /* สีตัวอักษรเริ่มต้น เทาเข้ม */
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased; /* ทำให้ฟอนต์ดูเรียบเนียนขึ้น */
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* ----------------------------------------------------- */
+/* Form Container - กล่องฟอร์มหลัก */
+/* ----------------------------------------------------- */
+.form-container {
+    background-color: #ffffff;
+    padding: 3rem; /* เพิ่ม padding ให้ดูหรูหราขึ้น */
+    border-radius: 16px; /* ขอบโค้งมนที่ดูนุ่มนวล */
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08); /* เงาที่ลึกขึ้นแต่โปร่งแสง */
+    width: 100%;
+    max-width: 480px; /* ขยายความกว้างขึ้นเล็กน้อยเพื่อความสบายตา */
+    animation: slideInUp 0.6s ease-out forwards; /* อนิเมชันตอนโหลด */
+    position: relative; /* สำหรับอนิเมชัน */
+    overflow: hidden; /* ป้องกันเงาล้น */
+}
+
+/* Background gradient effect */
+.form-container::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 10px; /* ความสูงของแถบสี */
+    background: linear-gradient(to right, #3a93fa, #66c0fc); /* Gradient สวยงามด้านบน */
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+    z-index: 1; /* ให้แถบสีอยู่ด้านบน */
+}
+
+
+/* Keyframe สำหรับอนิเมชัน slideInUp */
+@keyframes slideInUp {
+    from {
+        opacity: 0;
+        transform: translateY(40px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ----------------------------------------------------- */
+/* Form Title - หัวข้อฟอร์ม */
+/* ----------------------------------------------------- */
+.form-title {
+    font-size: 2.2rem; /* ขนาดใหญ่ขึ้น ชัดเจน */
+    font-weight: 700;
+    text-align: center;
+    color: #212529; /* สีดำสนิทสำหรับหัวข้อหลัก */
+    margin-bottom: 2.5rem;
+    letter-spacing: -0.03em; /* ระยะห่างตัวอักษรให้ดูโปร่ง */
+    position: relative;
+    padding-bottom: 15px; /* เพิ่มพื้นที่สำหรับเส้นใต้ */
+}
+
+.form-title::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 60px; /* ความยาวของเส้นใต้ */
+    height: 4px; /* ความหนาของเส้นใต้ */
+    background: linear-gradient(to right, #3a93fa, #66c0fc); /* Gradient เส้นใต้ */
+    border-radius: 2px;
+}
+
+/* ----------------------------------------------------- */
+/* Error Message - ข้อความแสดงข้อผิดพลาด */
+/* ----------------------------------------------------- */
+.error-message {
+    background-color: #fdeded; /* สีแดงอ่อนที่สบายตา */
+    border: 1px solid #fbc4c4; /* ขอบสีแดง */
+    color: #dc3545; /* ตัวอักษรสีแดงเข้ม */
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 2rem; /* เพิ่มระยะห่างด้านล่าง */
+    font-size: 0.95rem;
+    text-align: center;
+    animation: shake 0.5s ease-in-out; /* อนิเมชันเตือน */
+    box-shadow: 0 2px 5px rgba(220, 53, 69, 0.1); /* เงาอ่อนๆ */
+}
+
+/* Keyframe สำหรับอนิเมชัน shake */
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    10%, 30%, 50%, 70%, 90% { transform: translateX(-8px); }
+    20%, 40%, 60%, 80% { transform: translateX(8px); }
+}
+
+/* ----------------------------------------------------- */
+/* Form Layout - การจัดเรียงองค์ประกอบในฟอร์ม */
+/* ----------------------------------------------------- */
+.form-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem; /* ระยะห่างระหว่างฟิลด์ที่มากขึ้น */
+}
+
+/* ----------------------------------------------------- */
+/* Form Group - กลุ่ม (Label + Select) */
+/* ----------------------------------------------------- */
+
+/* ----------------------------------------------------- */
+/* Form Label - ป้ายกำกับ (Label) */
+/* ----------------------------------------------------- */
+.form-label {
+    display: block;
+    font-size: 1rem; /* ขนาดที่อ่านง่าย */
+    font-weight: 600; /* หนาขึ้นเล็กน้อย */
+    color: #495057; /* สีเทาเข้มกลาง */
+    margin-bottom: 0.75rem; /* เพิ่มระยะห่าง */
+}
+
+/* ----------------------------------------------------- */
+/* Form Select - Dropdown */
+/* ----------------------------------------------------- */
+.form-select {
+    display: block;
+    width: 100%;
+    padding: 0.9rem 1.25rem; /* เพิ่ม padding ให้ดูใหญ่และสบายตาขึ้น */
+    border: 1px solid #ced4da; /* ขอบสีเทาอ่อน */
+    border-radius: 10px; /* ขอบโค้งมน */
+    background-color: #fefefe; /* สีพื้นหลังขาวเกือบสะอาด */
+    font-size: 1.05rem;
+    color: #495057;
+    appearance: none; /* ลบสไตล์เริ่มต้นของ dropdown */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236c757d'%3E%3Cpath fill-rule='evenodd' d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z' clip-rule='evenodd'%3E%3C/path%3E%3C/svg%3E"); /* SVG arrow ใหม่ที่ดูดีขึ้น */
+    background-repeat: no-repeat;
+    background-position: right 1rem center;
+    background-size: 1.5rem;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.06); /* เงาด้านในเล็กน้อย */
+}
+
+.form-select:focus {
+    outline: none;
+    border-color: #6a11cb; /* สีม่วงเมื่อ focus */
+    box-shadow: 0 0 0 4px rgba(106, 17, 203, 0.2); /* Ring เมื่อ focus */
+    background-color: #fff;
+}
+
+/* ----------------------------------------------------- */
+/* Submit Button - ปุ่มส่งฟอร์ม */
+/* ----------------------------------------------------- */
+.submit-button {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 1.1rem 1.5rem; /* เพิ่ม padding ให้ปุ่มใหญ่และน่าคลิก */
+    border: none;
+    border-radius: 10px; /* ขอบโค้งมน */
+    background: linear-gradient(to right, #3a93fa, #66c0fc); /* Gradient สำหรับปุ่ม */
+    box-shadow: 0 8px 20px rgba(76, 110, 245, 0.2); /* เงาปุ่มที่เด่นชัด */
+    font-size: 1.2rem; /* ขนาดตัวอักษรปุ่มใหญ่ขึ้น */
+    font-weight: 700;
+    color: #ffffff;
+    cursor: pointer;
+    transition: background 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+    margin-top: 1.5rem; /* ระยะห่างจาก dropdown ตัวสุดท้าย */
+    letter-spacing: 0.05em; /* เพิ่มระยะห่างตัวอักษร */
+    text-transform: uppercase; /* ตัวพิมพ์ใหญ่ */
+}
+
+.submit-button:hover {
+    background: linear-gradient(to right, #3a93fa, #66c0fc); /* เปลี่ยน gradient เมื่อ hover */
+    transform: translateY(-3px); /* ยกขึ้นเล็กน้อย */
+    box-shadow: 0 12px 25px rgba(76, 110, 245, 0.35); /* เงาเข้มขึ้น */
+}
+
+.submit-button:focus {
+    outline: none;
+    box-shadow: 0 0 0 5px rgba(76, 110, 245, 0.3); /* Ring เมื่อ focus */
+}
+
+/* ----------------------------------------------------- */
+/* Responsive Adjustments - การปรับแต่งเมื่อจอเล็ก */
+/* ----------------------------------------------------- */
+@media (max-width: 576px) {
+    .form-container {
+        padding: 2rem;
+        border-radius: 12px;
+        margin: 15px; /* เพิ่ม margin รอบๆ */
+        max-width: 95%; /* จำกัดความกว้างบนจอเล็ก */
+    }
+
+    .form-title {
+        font-size: 1.8rem;
+        margin-bottom: 1.8rem;
+    }
+
+    .form-title::after {
+        width: 50px;
+        height: 3px;
+    }
+
+    .error-message {
+        padding: 0.8rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .form-label {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .form-select {
+        padding: 0.7rem 1rem;
+        font-size: 0.95rem;
+        border-radius: 8px;
+    }
+
+    .submit-button {
+        padding: 0.9rem 1rem;
+        font-size: 1rem;
+        border-radius: 8px;
+        margin-top: 1.2rem;
+    }
+}

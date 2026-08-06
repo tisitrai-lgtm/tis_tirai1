@@ -1,0 +1,12 @@
+Options +FollowSymLinks -MultiViews
+RewriteEngine On
+RewriteBase /ktis_field/
+
+# ถ้าเป็นไฟล์หรือโฟลเดอร์จริงให้ผ่านไปเลย
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# ซ่อน .php
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^([^.]+)$ $1.php [L,QSA]

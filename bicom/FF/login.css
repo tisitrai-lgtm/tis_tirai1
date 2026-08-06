@@ -1,0 +1,113 @@
+
+        body {
+            font-family: 'Prompt', sans-serif;
+            /* แก้ไขส่วนพื้นหลังเป็นรูปภาพ */
+            background: url('bg/v1.jpg') no-repeat center center fixed;
+            background-size: cover;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            position: relative;
+        }
+
+        /* เพิ่ม Overlay เพื่อให้ภาพพื้นหลังไม่แย่งสายตาจากฟอร์ม */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.3); /* ปรับความเข้มของภาพพื้นหลัง (0.3 คือจางๆ) */
+            z-index: 1;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            position: relative;
+            z-index: 2; /* ให้อยู่เหนือ Overlay */
+        }
+         .card-icon {
+            width: 80px;
+            height: 60px;
+            margin-bottom: 1.5rem;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+            object-fit: contain;
+            transition: transform 0.3s ease; /* เพิ่มความสมูทตอนเอาเมาส์ชี้ */
+            filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2)); /* เพิ่มเงาให้รูปภาพดูมีมิติ */
+        }
+        .card-icon img:hover {
+            transform: scale(1.1); /* ขยายขึ้นเล็กน้อยเวลาเอาเมาส์ไปชี้ */
+        }
+
+        .btn-primary {
+            background: #1a2a6c;
+            border: none;
+            border-radius: 12px;
+            padding: 12px;
+            transition: all 0.3s;
+        }
+
+        .btn-primary:hover {
+            background: #b21f1f;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(178, 31, 31, 0.4);
+        }
+
+        .form-select {
+            border-radius: 12px;
+            padding: 12px;
+            border: 2px solid #eee;
+        }
+
+        .form-select:focus {
+            border-color: #1a2a6c;
+            box-shadow: none;
+        }
+
+        .icon-box {
+            width: 60px;
+            height: 60px;
+            background: #1a2a6c;
+            color: white;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+        }
+         @media (max-width: 768px) {
+        .navbar {
+            padding: 0.6rem 0.5rem;
+        }
+        .navbar .container-fluid {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .navbar .container-fluid::-webkit-scrollbar { display: none; }
+
+        .navbar .btn {
+            padding: 6px 15px !important;
+            margin-left: 5px; /* ลดระยะห่างบนมือเพื่อไม่ให้ล้นเกินไป */
+            font-size: 0.8rem !important;
+        }
+        
+        .text-long { display: none; }
+        .text-short { display: inline-block; }
+    }
+
+    /* --- การปรับแต่งสำหรับคอมพิวเตอร์ --- */
+    @media (min-width: 769px) {
+        .text-long { display: inline-block; }
+        .text-short { display: none; }
+    }
+       
