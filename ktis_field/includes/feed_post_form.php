@@ -6,7 +6,7 @@
  * @var array  $_SESSION
  */
 ?>
-<?php if(($_SESSION['emp_unit'] ?? '') == 'ประจำออฟฟิตกลาง' && ($_SESSION['emp_level'] ?? '') == 'a'): ?>
+<?php if(($_SESSION['emp_level'] ?? '') === 'a'): ?>
 
 <style>
 /* ── feed_post_form: theme styles ── */

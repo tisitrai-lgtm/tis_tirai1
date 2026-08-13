@@ -148,10 +148,16 @@ function formatContract($number) {
         <tbody>
             <?php
             $sql_data = "SELECT * FROM image_water 
-                        WHERE emp_id = '$emp_id' 
-                        AND year_rai = '$selected_year'
-                        AND (water_image1 != '') AND (water_image2 != '') 
-                        ORDER BY plot_id ASC";
+             WHERE emp_id = '$emp_id' 
+             AND year_rai = '$selected_year'
+             AND water_method1 IS NOT NULL AND water_method1 != ''
+             AND water_method2 IS NOT NULL AND water_method2 != ''
+             AND (
+                 (water_image1 IS NOT NULL AND water_image1 != '')
+                 OR
+                 (water_image2 IS NOT NULL AND water_image2 != '')
+             )
+             ORDER BY plot_id ASC";
             
             $result_data = mysqli_query($con, $sql_data);
             $pdf_items = [];

@@ -6,19 +6,36 @@ if (!isset($_SESSION['emp_level']) || $_SESSION['emp_level'] != 'a') {
     die("คุณไม่มีสิทธิ์เข้าถึงหน้านี้ กรุณากลับหน้าหลัก");
 }
 
-// ดึงพนักงานพร้อมจำนวนรถที่ดูแล
-$sql = "SELECT e.*,
+// ----------------------------------------------------
+// 1. ตั้งค่าระบบแบ่งหน้า (Pagination) แสดงผล 15 รายการ/หน้า
+// ----------------------------------------------------
+$limit = 15;
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+if ($page < 1) $page = 1;
+$offset = ($page - 1) * $limit;
+
+// นับจำนวนพนักงานทั้งหมด
+$total_stmt = $conn->query("SELECT COUNT(*) FROM employee");
+$total_employees = $total_stmt->fetchColumn();
+$total_pages = ceil($total_employees / $limit);
+
+// ดึงข้อมูลพนักงานเฉพาะหน้านั้นๆ (15 คน)
+$sql = "SELECT e.*, 
         COUNT(eh.harvester_id) as harvester_count
         FROM employee e
         LEFT JOIN employee_harvester eh ON e.ID = eh.emp_id
         LEFT JOIN harvesters h ON eh.harvester_id = h.harvester_id AND h.is_active = 1
         GROUP BY e.ID
-        ORDER BY e.emp_unit ASC, e.emp_id ASC";
+        ORDER BY e.emp_unit ASC, e.emp_id ASC
+        LIMIT :limit OFFSET :offset";
 
-$stmt = $conn->query($sql);
+$stmt = $conn->prepare($sql);
+$stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+$stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+$stmt->execute();
 $employees = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-// ดึงรถตัดทั้งหมด (active)
+// ดึงรถตัดทั้งหมด (active) สำหรับ Modal
 $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvesters WHERE is_active = 1 ORDER BY harvester_id ASC")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <?php include 'includes/nav_u_header.php'; ?>
@@ -86,6 +103,15 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
 
         .action-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
+        /* PAGINATION UI */
+        .pagination-container { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; flex-wrap: wrap; gap: 10px; }
+        .pagination-info { font-size: 0.88rem; color: #64748b; }
+        .pagination-links { display: flex; gap: 5px; }
+        .page-link { padding: 6px 12px; border: 1px solid #e2e8f0; background: white; color: #334155; border-radius: 6px; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: all 0.15s; }
+        .page-link:hover { background: #f1f5f9; border-color: #cbd5e1; }
+        .page-link.active { background: #1e293b; color: white; border-color: #1e293b; }
+        .page-link.disabled { opacity: 0.5; pointer-events: none; }
+
         /* MOBILE CARDS */
         .mobile-cards { display: none; }
         .emp-card { background: white; border-radius: 12px; border: 0.5px solid #e2e8f0; padding: 14px 16px; margin-bottom: 10px; }
@@ -111,15 +137,20 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
         }
 
         /* ═══════════════════════════════════
-           HARVESTER POPUP MODAL
+           HARVESTER POPUP MODAL (FIXED POSITION)
+        ═══════════════════════════════════ */
+/* ═══════════════════════════════════
+           HARVESTER POPUP MODAL (ABSOLUTE POSITION)
         ═══════════════════════════════════ */
         .modal-overlay {
             display: none;
-            position: fixed; inset: 0;
+            position: absolute; /* เปลี่ยนจาก fixed เป็น absolute เพื่อยึดตามพิกัดหน้าจอจริง */
+            top: 0; left: 0; width: 100%; min-height: 100vh;
             background: rgba(15,23,42,0.6);
-            z-index: 9000;
-            align-items: center; justify-content: center;
-            padding: 20px;
+            z-index: 99999;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 40px 16px;
         }
         .modal-overlay.open { display: flex; animation: fadeIn 0.2s ease; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -131,10 +162,9 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
             max-height: 85vh;
             display: flex; flex-direction: column;
             box-shadow: 0 20px 60px rgba(0,0,0,0.25);
-            animation: slideUp 0.25s cubic-bezier(0.34,1.56,0.64,1);
-        }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
-
+            animation: slideDown 0.25s cubic-bezier(0.34,1.56,0.64,1);
+            margin-top: 20px;
+        }        @keyframes slideDown { from { opacity: 0; transform: translateY(-15px); } to { opacity: 1; transform: translateY(0); } }
         .modal-header {
             background: #1e293b;
             border-radius: 16px 16px 0 0;
@@ -148,7 +178,7 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
         .modal-close { background: none; border: none; color: #94a3b8; font-size: 1.4rem; cursor: pointer; padding: 4px; border-radius: 6px; transition: color 0.15s, background 0.15s; line-height: 1; }
         .modal-close:hover { color: #f8fafc; background: rgba(255,255,255,0.1); }
 
-        .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+        .modal-body { padding: 20px; overflow-y: auto; flex: 1; max-height: 55vh; }
 
         .modal-search { width: 100%; padding: 9px 14px; border: 1.5px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; font-family: 'Sarabun', sans-serif; outline: none; margin-bottom: 16px; }
         .modal-search:focus { border-color: #f59e0b; }
@@ -194,11 +224,11 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
         .btn-modal-close { background: #1e293b; color: white; border: none; padding: 9px 22px; border-radius: 8px; font-weight: 700; font-size: 0.9rem; cursor: pointer; font-family: 'Sarabun', sans-serif; transition: background 0.15s; }
         .btn-modal-close:hover { background: #0f172a; }
 </style>
+
 <div class="page-wrapper" style="display:flex;min-height:100vh;">
 <?php include 'includes/nav_u_sidebar.php'; ?>
 <div class="dash-wrap" style="flex:1;padding:24px 28px;min-width:0;overflow-x:hidden;">
 <div class="content-wrapper">
-
 
 <div class="page-container">
 
@@ -212,37 +242,16 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
         </a>
     </div>
 
-    <?php
-    $total  = count($employees);
-    $admins = count(array_filter($employees, fn($e) => $e['emp_level'] == 'a'));
-    $users  = $total - $admins;
-    ?>
     <div class="stat-row">
-        <div class="stat-chip chip-total"><i class="fa-solid fa-users" style="color:#1e293b;"></i> ทั้งหมด <span><?php echo $total; ?></span> คน</div>
-        <div class="stat-chip chip-admin"><i class="fa-solid fa-shield-halved" style="color:#e11d48;"></i> แอดมิน <span><?php echo $admins; ?></span> คน</div>
-        <div class="stat-chip chip-user"><i class="fa-solid fa-user" style="color:#10b981;"></i> พนักงาน <span><?php echo $users; ?></span> คน</div>
+        <div class="stat-chip chip-total"><i class="fa-solid fa-users" style="color:#1e293b;"></i> ทั้งหมด <span><?php echo $total_employees; ?></span> คน</div>
     </div>
 
     <div class="search-bar">
         <i class="fa-solid fa-magnifying-glass"></i>
-        <input type="text" id="search-input" placeholder="ค้นหารหัส ชื่อ หรือหน่วยงาน..." oninput="filterTable()">
+        <input type="text" id="search-input" placeholder="ค้นหารหัส ชื่อ หรือหน่วยงานในหน้านี้..." oninput="filterTable()">
     </div>
 
-    <?php if (isset($_GET['success'])): ?>
-        <div style="background:#d1fae5; color:#065f46; padding:12px; border-radius:8px; margin-bottom:16px; border:1px solid #6ee7b7; display:flex; align-items:center; gap:10px;">
-            <i class="fa-solid fa-circle-check"></i>
-            <?php echo htmlspecialchars($_GET['success']); ?>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($_GET['error'])): ?>
-        <div style="background:#fee2e2; color:#991b1b; padding:12px; border-radius:8px; margin-bottom:16px; border:1px solid #fca5a5; display:flex; align-items:center; gap:10px;">
-            <i class="fa-solid fa-circle-xmark"></i>
-            <?php echo htmlspecialchars($_GET['error']); ?>
-        </div>
-    <?php endif; ?>
-
-    <!-- ===== Desktop Table ===== -->
+    <!-- Desktop Table -->
     <div class="table-wrap" id="desktop-table">
         <table>
             <thead>
@@ -263,12 +272,11 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
                 data-name="<?php echo htmlspecialchars(strtolower($emp['emp_name'])); ?>"
                 data-id="<?php echo htmlspecialchars(strtolower($emp['emp_id'])); ?>"
                 data-unit="<?php echo htmlspecialchars(strtolower($emp['emp_unit'])); ?>">
-                <td><?php echo $i+1; ?></td>
+                <td><?php echo $offset + $i + 1; ?></td>
                 <td><span class="emp-id-cell"><?php echo htmlspecialchars($emp['emp_id']); ?></span></td>
                 <td><?php echo htmlspecialchars($emp['emp_name']); ?></td>
                 <td><span class="badge-unit"><?php echo htmlspecialchars($emp['emp_unit']); ?></span></td>
 
-                <!-- สถานะ -->
                 <td>
                     <?php if($emp['status'] == 1): ?>
                         <span class="badge-on"><i class="fa-solid fa-circle-check"></i> ใช้งาน</span>
@@ -277,7 +285,6 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
                     <?php endif; ?>
                 </td>
 
-                <!-- รถตัด (ผู้ดูแล?) -->
                 <td>
                     <?php if($emp['is_harvester_manager'] == 1): ?>
                         <span class="badge-manager"><i class="fa-solid fa-truck-pickup"></i> ผู้ดูแล</span>
@@ -286,7 +293,6 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
                     <?php endif; ?>
                 </td>
 
-                <!-- รถที่ดูแล -->
                 <td>
                     <?php if($emp['is_harvester_manager'] == 1 && $emp['harvester_count'] > 0): ?>
                         <button class="badge-cars"
@@ -300,7 +306,6 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
                     <?php endif; ?>
                 </td>
 
-                <!-- จัดการ -->
                 <td>
                     <div class="action-group">
                         <?php if($emp['is_harvester_manager'] == 1): ?>
@@ -309,31 +314,20 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
                             <i class="fa-solid fa-truck-pickup"></i> เลือกรถ
                         </button>
                         <?php endif; ?>
-                        <a href="view_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-view">
-                            <i class="fa-solid fa-eye"></i> ดู
-                        </a>
-                        <a href="edit_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-edit">
-                            <i class="fa-solid fa-pen-to-square"></i> แก้ไข
-                        </a>
-                        <a href="delete_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-del"
-                           onclick="return confirm('ยืนยันการลบพนักงานคุณ <?php echo addslashes(htmlspecialchars($emp['emp_name'])); ?> หรือไม่?')">
-                            <i class="fa-solid fa-trash"></i> ลบ
-                        </a>
+                        <a href="view_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-view"><i class="fa-solid fa-eye"></i> ดู</a>
+                        <a href="edit_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-edit"><i class="fa-solid fa-pen-to-square"></i> แก้ไข</a>
+                        <a href="delete_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-del" onclick="return confirm('ยืนยันการลบ?')"><i class="fa-solid fa-trash"></i> ลบ</a>
                     </div>
                 </td>
             </tr>
             <?php endforeach; ?>
             </tbody>
         </table>
-        <div id="empty-table" class="empty-state" style="display:none;">
-            <i class="fa-solid fa-user-slash"></i>
-            ไม่พบพนักงานที่ค้นหา
-        </div>
     </div>
 
-    <!-- ===== Mobile Cards ===== -->
+    <!-- Mobile Cards -->
     <div class="mobile-cards" id="mobile-cards">
-        <?php foreach($employees as $emp):
+        <?php foreach($employees as $emp): 
             $initials = mb_substr(trim($emp['emp_name']), 0, 2, 'UTF-8');
             $is_admin = ($emp['emp_level'] == 'a');
         ?>
@@ -342,148 +336,105 @@ $harvesters = $conn->query("SELECT harvester_id, harvester_number FROM harvester
              data-id="<?php echo htmlspecialchars(strtolower($emp['emp_id'])); ?>"
              data-unit="<?php echo htmlspecialchars(strtolower($emp['emp_unit'])); ?>">
             <div class="emp-card-top">
-                <div class="emp-card-avatar <?php echo $is_admin ? 'is-admin' : ''; ?>">
-                    <?php echo htmlspecialchars($initials); ?>
-                </div>
+                <div class="emp-card-avatar <?php echo $is_admin ? 'is-admin' : ''; ?>"><?php echo htmlspecialchars($initials); ?></div>
                 <div class="emp-card-info">
                     <div class="emp-card-name"><?php echo htmlspecialchars($emp['emp_name']); ?></div>
                     <div class="emp-card-id"><?php echo htmlspecialchars($emp['emp_id']); ?></div>
                 </div>
-                <?php if($emp['is_harvester_manager'] == 1): ?>
-                    <span class="badge-manager"><i class="fa-solid fa-truck-pickup"></i> ผู้ดูแล</span>
-                <?php endif; ?>
-            </div>
-            <div class="emp-card-meta">
-                <span class="badge-unit"><?php echo htmlspecialchars($emp['emp_unit']); ?></span>
-                <?php if($emp['status'] == 1): ?>
-                    <span class="badge-on" style="font-size:0.75rem;"><i class="fa-solid fa-circle" style="font-size:0.4rem;"></i> ใช้งาน</span>
-                <?php else: ?>
-                    <span class="badge-off" style="font-size:0.75rem;"><i class="fa-solid fa-circle" style="font-size:0.4rem;"></i> ปิด</span>
-                <?php endif; ?>
-                <?php if($emp['is_harvester_manager'] == 1 && $emp['harvester_count'] > 0): ?>
-                    <span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:700;">
-                        <i class="fa-solid fa-tractor"></i> <?php echo $emp['harvester_count']; ?> คัน
-                    </span>
-                <?php endif; ?>
             </div>
             <div class="emp-card-actions">
                 <?php if($emp['is_harvester_manager'] == 1): ?>
-                <button class="action-btn btn-select-car" style="flex:1;"
-                        onclick="openHarvesterModal(<?php echo $emp['ID']; ?>, '<?php echo addslashes(htmlspecialchars($emp['emp_name'])); ?>')">
+                <button class="action-btn btn-select-car" style="flex:1;" onclick="openHarvesterModal(<?php echo $emp['ID']; ?>, '<?php echo addslashes(htmlspecialchars($emp['emp_name'])); ?>')">
                     <i class="fa-solid fa-truck-pickup"></i> เลือกรถ
                 </button>
                 <?php endif; ?>
-                <a href="view_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-view" style="flex:1; justify-content:center;">
-                    <i class="fa-solid fa-eye"></i> ดู
-                </a>
-                <a href="edit_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-edit" style="flex:1; justify-content:center;">
-                    <i class="fa-solid fa-pen-to-square"></i> แก้ไข
-                </a>
-                <a href="delete_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-del" style="flex:1; justify-content:center;"
-                   onclick="return confirm('ยืนยันการลบพนักงานคุณ <?php echo addslashes(htmlspecialchars($emp['emp_name'])); ?> หรือไม่?')">
-                    <i class="fa-solid fa-trash"></i> ลบ
-                </a>
+                <a href="edit_user.php?id=<?php echo $emp['ID']; ?>" class="action-btn btn-edit" style="flex:1; justify-content:center;"><i class="fa-solid fa-pen-to-square"></i> แก้ไข</a>
             </div>
         </div>
         <?php endforeach; ?>
-        <div id="empty-cards" class="empty-state" style="display:none;">
-            <i class="fa-solid fa-user-slash"></i>
-            ไม่พบพนักงานที่ค้นหา
-        </div>
     </div>
 
-</div><!-- /page-container -->
-</div><!-- /content-wrapper -->
+    <!-- ---------------------------------------------------- -->
+    <!-- 2. ส่วนแสดงปุ่มเปลี่ยนหน้า (Pagination Controls) -->
+    <!-- ---------------------------------------------------- -->
+    <?php if ($total_pages > 1): ?>
+    <div class="pagination-container">
+        <div class="pagination-info">
+            แสดง <?php echo $offset + 1; ?> ถึง <?php echo min($offset + $limit, $total_employees); ?> จากทั้งหมด <?php echo $total_employees; ?> คน
+        </div>
+        <div class="pagination-links">
+            <a href="?page=<?php echo $page - 1; ?>" class="page-link <?php echo ($page <= 1) ? 'disabled' : ''; ?>"><i class="fa-solid fa-chevron-left"></i> ย้อนกลับ</a>
+            
+            <?php for ($p = 1; $p <= $total_pages; $p++): ?>
+                <a href="?page=<?php echo $p; ?>" class="page-link <?php echo ($page == $p) ? 'active' : ''; ?>"><?php echo $p; ?></a>
+            <?php endfor; ?>
 
-</div></div><!-- dash-wrap / page-wrapper -->
+            <a href="?page=<?php echo $page + 1; ?>" class="page-link <?php echo ($page >= $total_pages) ? 'disabled' : ''; ?>">ถัดไป <i class="fa-solid fa-chevron-right"></i></a>
+        </div>
+    </div>
+    <?php endif; ?>
 
-<!-- ════════════════════════════════════
-     HARVESTER ASSIGNMENT MODAL
-════════════════════════════════════ -->
+</div>
+</div>
+</div>
+</div>
+
+<!-- Modal เลือกรถตัด -->
 <div id="harvesterModal" class="modal-overlay">
     <div class="modal-box">
-        <!-- Header -->
         <div class="modal-header">
             <div class="modal-header-left">
-                <div class="modal-title">
-                    <i class="fa-solid fa-truck-pickup" style="color:#f59e0b;"></i>
-                    เลือกรถตัดที่ดูแล
-                </div>
+                <div class="modal-title"><i class="fa-solid fa-truck-pickup" style="color:#f59e0b;"></i> เลือกรถตัดที่ดูแล</div>
                 <div class="modal-sub" id="modalEmpName">—</div>
             </div>
-            <button class="modal-close" onclick="closeModal()" title="ปิด">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
+            <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button>
         </div>
-
-        <!-- Body -->
         <div class="modal-body">
             <input type="text" class="modal-search" id="modalSearch" placeholder="🔍 ค้นหาเบอร์รถ..." oninput="filterChips()">
-
             <div class="modal-count-bar">
-                กดที่รถเพื่อ <strong>เพิ่ม/ถอน</strong> · รถที่เลือกอยู่แสดงด้วย <strong>✓</strong> สีเหลือง
-                <span id="selectedCountBadge" style="margin-left:6px; background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:10px; font-size:0.78rem; font-weight:700;"></span>
+                กดที่รถเพื่อ <strong>เพิ่ม/ถอน</strong> <span id="selectedCountBadge" style="margin-left:6px; background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:10px; font-size:0.78rem; font-weight:700;"></span>
             </div>
-
-            <div class="harvester-grid" id="harvesterGrid">
-                <!-- chips injected by JS -->
-            </div>
+            <div class="harvester-grid" id="harvesterGrid"></div>
         </div>
-
-        <!-- Footer -->
         <div class="modal-footer">
-            <div class="modal-footer-info" id="modalFooterInfo">
-                <i class="fa-solid fa-circle-info" style="color:#94a3b8;"></i>
-                การเปลี่ยนแปลงจะบันทึกทันทีที่กด
-            </div>
-            <button class="btn-modal-close" onclick="closeModal()">
-                <i class="fa-solid fa-check"></i> เสร็จแล้ว
-            </button>
+            <div class="modal-footer-info" id="modalFooterInfo"></div>
+            <button class="btn-modal-close" onclick="closeModal()"><i class="fa-solid fa-check"></i> เสร็จแล้ว</button>
         </div>
     </div>
 </div>
 
-<!-- ════════════════════════════════════
-     JAVASCRIPT
-════════════════════════════════════ -->
 <script>
-// --- data from PHP ---
 const allHarvesters = <?php echo json_encode($harvesters, JSON_UNESCAPED_UNICODE); ?>;
-
 let currentManagerId   = null;
 let currentManagerName = '';
 let assignedIds        = new Set();
 
-/* ── Open Modal ── */
 function openHarvesterModal(empId, empName) {
     currentManagerId   = empId;
     currentManagerName = empName;
     document.getElementById('modalEmpName').textContent = 'พนักงาน: ' + empName;
     document.getElementById('modalSearch').value = '';
-    document.getElementById('harvesterModal').classList.add('open');
-    document.body.style.overflow = 'hidden';
+    
+    const modalOverlay = document.getElementById('harvesterModal');
+    
+    // ดึงตำแหน่งหน้าจอที่ผู้ใช้กำลังเลื่อนดูอยู่ปัจจุบัน แล้วขยับ Overlay ไปครอบตรงนั้นพอดี
+    modalOverlay.style.top = window.pageYOffset + 'px';
+
+    modalOverlay.classList.add('open');
+    document.body.style.overflow = 'hidden'; // ล็อกไม่ให้หน้าเว็บขยับพื้นหลัง
     loadAssigned(empId);
 }
 
-/* ── Close Modal ── */
 function closeModal() {
-    document.getElementById('harvesterModal').classList.remove('open');
-    document.body.style.overflow = '';
-    // refresh count badge in table without reload
+    const modalOverlay = document.getElementById('harvesterModal');
+    modalOverlay.classList.remove('open');
+    document.body.style.overflow = ''; // คืนค่าให้เลื่อนหน้าเว็บได้ปกติ
     updateRowBadge(currentManagerId, assignedIds.size);
 }
-
-/* ── Click overlay to close ── */
 document.getElementById('harvesterModal').addEventListener('click', function(e) {
     if (e.target === this) closeModal();
 });
 
-/* ── Escape key ── */
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeModal();
-});
-
-/* ── Load assigned harvesters from server ── */
 function loadAssigned(empId) {
     document.getElementById('harvesterGrid').innerHTML = '<div style="text-align:center; padding:30px; color:#94a3b8;"><i class="fa-solid fa-spinner fa-spin" style="font-size:1.5rem;"></i></div>';
 
@@ -498,7 +449,6 @@ function loadAssigned(empId) {
         });
 }
 
-/* ── Render chips ── */
 function renderChips() {
     const grid = document.getElementById('harvesterGrid');
     grid.innerHTML = '';
@@ -514,7 +464,6 @@ function renderChips() {
     updateSelectedCount();
 }
 
-/* ── Toggle assign ── */
 function toggleAssign(hId, el) {
     el.classList.add('saving');
     const action = assignedIds.has(hId) ? 'remove' : 'add';
@@ -527,35 +476,26 @@ function toggleAssign(hId, el) {
         .then(r => r.json())
         .then(data => {
             if (data.status === 'success') {
-                if (action === 'add')    assignedIds.add(hId);
-                else                     assignedIds.delete(hId);
+                if (action === 'add') assignedIds.add(hId);
+                else assignedIds.delete(hId);
                 el.classList.toggle('assigned', action === 'add');
                 updateSelectedCount();
             }
         })
-        .catch(() => {})
         .finally(() => el.classList.remove('saving'));
 }
 
-/* ── Update selected count badge ── */
 function updateSelectedCount() {
     const cnt = assignedIds.size;
     document.getElementById('selectedCountBadge').textContent = 'เลือกอยู่ ' + cnt + ' คัน';
     document.getElementById('modalFooterInfo').innerHTML =
-        '<i class="fa-solid fa-tractor" style="color:#f59e0b;"></i> ' +
-        currentManagerName + ' ดูแลรถ <strong style="color:#92400e;">' + cnt + '</strong> คัน';
+        '<i class="fa-solid fa-tractor" style="color:#f59e0b;"></i> ' + currentManagerName + ' ดูแลรถ <strong style="color:#92400e;">' + cnt + '</strong> คัน';
 }
 
-/* ── Update row badge in table after close ── */
 function updateRowBadge(empId, count) {
-    // Find all buttons with matching onclick empId
     document.querySelectorAll('.emp-row, .mobile-row').forEach(row => {
         const btn = row.querySelector('[onclick*="openHarvesterModal(' + empId + ',"]');
         if (!btn) return;
-        if (btn.classList.contains('badge-cars')) {
-            btn.innerHTML = '<i class="fa-solid fa-tractor"></i> ดูแล ' + count + ' คัน';
-        }
-        // also update select-car button row badge
         const badgeBtn = row.querySelector('.badge-cars');
         if (badgeBtn) {
             badgeBtn.innerHTML = '<i class="fa-solid fa-tractor"></i> ดูแล ' + count + ' คัน';
@@ -563,7 +503,6 @@ function updateRowBadge(empId, count) {
     });
 }
 
-/* ── Filter chips by search ── */
 function filterChips() {
     const q = document.getElementById('modalSearch').value.toLowerCase();
     document.querySelectorAll('.hv-chip').forEach(chip => {
@@ -571,29 +510,13 @@ function filterChips() {
     });
 }
 
-/* ── Table search ── */
 function filterTable() {
     const q = document.getElementById('search-input').value.toLowerCase().trim();
-
-    const rows = document.querySelectorAll('.emp-row');
-    let visibleDesktop = 0;
-    rows.forEach(r => {
+    document.querySelectorAll('.emp-row').forEach(r => {
         const match = r.dataset.name.includes(q) || r.dataset.id.includes(q) || r.dataset.unit.includes(q);
         r.style.display = match ? '' : 'none';
-        if (match) visibleDesktop++;
     });
-    document.getElementById('empty-table').style.display = visibleDesktop === 0 ? 'block' : 'none';
-
-    const cards = document.querySelectorAll('.mobile-row');
-    let visibleMobile = 0;
-    cards.forEach(c => {
-        const match = c.dataset.name.includes(q) || c.dataset.id.includes(q) || c.dataset.unit.includes(q);
-        c.style.display = match ? '' : 'none';
-        if (match) visibleMobile++;
-    });
-    document.getElementById('empty-cards').style.display = visibleMobile === 0 ? 'block' : 'none';
 }
 </script>
-
 </body>
 </html>
