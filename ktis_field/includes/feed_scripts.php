@@ -26,6 +26,19 @@ function showToast(icon, title, timer = 2800) {
     });
 }
 
+// เช็คและแสดง Toast แจ้งเตือนเมื่อมีการบันทึกโพสต์ใหม่สำเร็จหลัง reload
+document.addEventListener('DOMContentLoaded', function() {
+    const postToastMsg = sessionStorage.getItem('toast_post_success');
+    if (postToastMsg) {
+        sessionStorage.removeItem('toast_post_success');
+        if (typeof window.showToast === 'function') {
+            window.showToast(postToastMsg, 'success');
+        } else if (typeof showToast === 'function') {
+            showToast('success', postToastMsg);
+        }
+    }
+});
+
 function showConfirm(title, text, confirmText, confirmColor = '#e11d48') {
     return Swal.fire({
         title,
@@ -324,23 +337,37 @@ function displayFileName(input, previewId) {
 }
 
 // ══════════════════════════════════════════
-//  เปิด/ปิด Admin Post Form
+//  เปิด/ปิด Admin Post Modal Popup (FAB)
 // ══════════════════════════════════════════
-function togglePostForm() {
-    const formBox = document.getElementById('adminPostForm');
-    const textBtn = document.getElementById('toggleText');
-    const iconBtn = document.getElementById('toggleIcon');
-    if (formBox.style.display === 'block') {
-        formBox.style.display = 'none';
-        textBtn.innerText = 'แจ้งเรื่องรถอ้อยสกปรกเพิ่ม';
-        iconBtn.className = 'fa-solid fa-circle-plus';
-    } else {
-        formBox.style.display = 'block';
-        textBtn.innerText = 'ปิดกล่องฟอร์มกรอกข้อมูล';
-        iconBtn.className = 'fa-solid fa-circle-minus';
+function openPostModal() {
+    const modal = document.getElementById('postModalOverlay');
+    if (modal) {
+        modal.classList.add('show');
+        document.body.style.overflow = 'hidden';
         loadProblemOptions();
     }
 }
+
+function closePostModal(e) {
+    if (!e || e.target.id === 'postModalOverlay' || e.target.closest('.btn-close-modal')) {
+        const modal = document.getElementById('postModalOverlay');
+        if (modal) {
+            modal.classList.remove('show');
+            document.body.style.overflow = '';
+        }
+    }
+}
+
+// ปิดเมื่อกด ESC
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        const modal = document.getElementById('postModalOverlay');
+        if (modal && modal.classList.contains('show')) {
+            modal.classList.remove('show');
+            document.body.style.overflow = '';
+        }
+    }
+});
 
 // ══════════════════════════════════════════
 //  Compress รูป (800px / 75%) พร้อม Progress UI
@@ -477,14 +504,11 @@ if (document.getElementById('uploadForm')) {
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                Swal.fire({
-                    icon: 'success',
-                    title: 'บันทึกสำเร็จ!',
-                    text: data.message,
-                    confirmButtonText: 'โหลดหน้าใหม่',
-                    confirmButtonColor: '#10b981',
-                    customClass: { popup: 'sa2-th' }
-                }).then(() => location.reload());
+                // ปิดหน้าต่าง Modal ทันที
+                closePostModal();
+                // บันทึกข้อความแจ้งเตือนไว้แสดงหลัง reload
+                sessionStorage.setItem('toast_post_success', data.message || 'บันทึกข้อมูลและสร้างโพสต์เรียบร้อยแล้ว');
+                location.reload();
             } else {
                 showToast('error', data.message || 'บันทึกไม่สำเร็จ');
                 if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> ยืนยันการบันทึกข้อมูล'; }

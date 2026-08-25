@@ -165,27 +165,57 @@ function deleteHarvester(id){
     });
 }
 
-// ── Employee-Harvester Assign ──
-function addAssign(){
-    const eid=document.getElementById('assign-emp').value;
-    const hid=document.getElementById('assign-hv').value;
-    if(!eid||!hid){ showAlert('กรุณาเลือกพนักงานและรถตัด','error'); return; }
-    const fd=new FormData(); fd.append('action','assign'); fd.append('emp_id',eid); fd.append('harvester_id',hid);
-    fetch('api_harvesters.php',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
-        if(d.status==='success'){ showAlert('ผูกเรียบร้อย'); setTimeout(()=>location.reload(),600); }
-        else showAlert(d.message,'error');
-    });
-}
-function deleteAssign(id){
-    if(!confirm('ยืนยันยกเลิกการผูก?'))return;
-    const fd=new FormData(); fd.append('action','unassign'); fd.append('id',id);
-    fetch('api_harvesters.php',{method:'POST',body:fd}).then(r=>r.json()).then(d=>{
-        if(d.status==='success'){ fadeRemove(document.getElementById('assign-'+id)); showAlert('ยกเลิกการผูกเรียบร้อย'); }
-        else showAlert(d.message,'error');
-    });
-}
 
 // ── System Settings ──
+async function toggleMaintenanceQuick(){
+    const inpMode = document.getElementById('inp-maintenance-mode');
+    const inpMsg  = document.getElementById('inp-maintenance-msg');
+    const inpUntil= document.getElementById('inp-maintenance-until');
+    if(!inpMode) return;
+
+    const currentVal = inpMode.value;
+    const newVal = (currentVal === '1') ? '0' : '1';
+    const confirmMsg = (newVal === '1') 
+        ? '⚠️ ยืนยันการสั่งปิดปรับปรุงระบบชั่วคราว?\nผู้ใช้ทั่วไป (User) จะไม่สามารถเข้าใช้งานได้ทันที'
+        : '🟢 ยืนยันการเปิดระบบให้ใช้งานตามปกติ?';
+
+    if(!confirm(confirmMsg)) return;
+
+    // บันทึก mode
+    const fd = new FormData();
+    fd.append('setting_key', 'maintenance_mode');
+    fd.append('setting_value', newVal);
+    
+    try {
+        const res = await fetch('api_settings.php', { method: 'POST', body: fd });
+        const data = await res.json();
+        if(data.status === 'success'){
+            inpMode.value = newVal;
+
+            // บันทึกข้อความและเวลาถ้ามี
+            if(inpMsg) {
+                const fdMsg = new FormData();
+                fdMsg.append('setting_key', 'maintenance_message');
+                fdMsg.append('setting_value', inpMsg.value.trim());
+                await fetch('api_settings.php', { method: 'POST', body: fdMsg });
+            }
+            if(inpUntil) {
+                const fdUntil = new FormData();
+                fdUntil.append('setting_key', 'maintenance_until');
+                fdUntil.append('setting_value', inpUntil.value.trim());
+                await fetch('api_settings.php', { method: 'POST', body: fdUntil });
+            }
+
+            showAlert(newVal === '1' ? 'เปิดโหมดปิดปรับปรุงระบบเรียบร้อย (User เข้าไม่ได้)' : 'เปิดระบบให้ใช้งานตามปกติเรียบร้อย');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showAlert(data.message, 'error');
+        }
+    } catch(err) {
+        showAlert('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์', 'error');
+    }
+}
+
 async function saveAllSettings(){
     const inputs=document.querySelectorAll('.setting-input');
     for(const inp of inputs){
@@ -195,12 +225,94 @@ async function saveAllSettings(){
         if(d.status!=='success'){ showAlert('เกิดข้อผิดพลาด: '+d.message,'error'); return; }
     }
     showAlert('บันทึกการตั้งค่าทั้งหมดเรียบร้อย ✓');
+    setTimeout(() => location.reload(), 1000);
 }
 
 // ── Logs ──
-function loadLogs(){
-    const limit=document.getElementById('log-limit')?.value||50;
-    fetch('api_get_logs.php?limit='+limit).then(r=>r.text()).then(html=>{ document.getElementById('log-container').innerHTML=html; });
+let logDebounceTimer = null;
+function loadLogsDebounced() {
+    clearTimeout(logDebounceTimer);
+    logDebounceTimer = setTimeout(loadLogs, 300);
 }
+
+function loadLogs() {
+    const limit    = document.getElementById('log-limit')?.value || 50;
+    const dateFrom = document.getElementById('log-date-from')?.value || '';
+    const dateTo   = document.getElementById('log-date-to')?.value || '';
+    const searchQ  = document.getElementById('log-search')?.value.trim() || '';
+
+    const container = document.getElementById('log-container');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div style="padding: 16px;">
+            <div class="skeleton skeleton-row" style="height:44px; margin-bottom:10px;"></div>
+            <div class="skeleton skeleton-row" style="height:44px; margin-bottom:10px;"></div>
+            <div class="skeleton skeleton-row" style="height:44px; margin-bottom:10px;"></div>
+            <div class="skeleton skeleton-row" style="height:44px;"></div>
+        </div>
+    `;
+
+    const params = new URLSearchParams({
+        limit: limit,
+        date_from: dateFrom,
+        date_to: dateTo,
+        q: searchQ
+    });
+
+    fetch('api_get_logs.php?' + params.toString())
+        .then(r => r.text())
+        .then(html => {
+            container.innerHTML = html;
+        })
+        .catch(err => {
+            container.innerHTML = '<div class="empty-list" style="padding:24px; color:#e11d48;">เกิดข้อผิดพลาดในการโหลดประวัติ</div>';
+        });
+}
+
+function setLogRange(daysAgoFrom, daysAgoTo) {
+    const today = new Date();
+    const dFrom = new Date();
+    dFrom.setDate(today.getDate() - daysAgoFrom);
+    const dTo = new Date();
+    dTo.setDate(today.getDate() - daysAgoTo);
+    
+    const formatDate = (d) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    };
+
+    const elFrom = document.getElementById('log-date-from');
+    const elTo   = document.getElementById('log-date-to');
+    if (elFrom) elFrom.value = formatDate(dFrom);
+    if (elTo) elTo.value = formatDate(dTo);
+    loadLogs();
+}
+
+function setLogMonthRange() {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+
+    const elFrom = document.getElementById('log-date-from');
+    const elTo   = document.getElementById('log-date-to');
+    if (elFrom) elFrom.value = `${y}-${m}-01`;
+    if (elTo) elTo.value = `${y}-${m}-${day}`;
+    loadLogs();
+}
+
+function clearLogDate() {
+    const elFrom = document.getElementById('log-date-from');
+    const elTo   = document.getElementById('log-date-to');
+    const elSearch = document.getElementById('log-search');
+    if (elFrom) elFrom.value = '';
+    if (elTo) elTo.value = '';
+    if (elSearch) elSearch.value = '';
+    loadLogs();
+}
+
 loadLogs();
 </script>

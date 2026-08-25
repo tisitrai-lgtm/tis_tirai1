@@ -1,7 +1,7 @@
 <?php
 /**
  * includes/settings/harvesters.php
- * จัดการรถตัด (harvesters) + ผูกพนักงานกับรถตัด (employee_harvester)
+ * จัดการรถตัด (harvesters)
  */
 
 // ── ดึงข้อมูลรถตัด ──
@@ -10,24 +10,11 @@ try {
     $harvesters = $conn->query("SELECT * FROM harvesters ORDER BY harvester_id ASC")->fetchAll();
 } catch(Exception $e){}
 
-// ── ดึงพนักงานทุกคน ──
-$employees = [];
-try {
-    $employees = $conn->query("SELECT emp_id, emp_name, emp_unit FROM employee ORDER BY emp_name ASC")->fetchAll();
-} catch(Exception $e){}
-
-// ── ดึงการ assign ──
-$assigns = [];
-try {
-    $rows = $conn->query("SELECT eh.*, e.emp_name, e.emp_unit, h.harvester_number FROM employee_harvester eh JOIN employee e ON eh.emp_id=e.emp_id JOIN harvesters h ON eh.harvester_id=h.harvester_id ORDER BY h.harvester_id ASC, e.emp_name ASC")->fetchAll();
-    foreach($rows as $r) $assigns[] = $r;
-} catch(Exception $e){}
-
 $active_count   = count(array_filter($harvesters, fn($h)=>$h['is_active']));
 $inactive_count = count($harvesters) - $active_count;
 ?>
 
-<!-- ── รถตัด ── -->
+<!-- ── จัดการรถตัดอ้อย ── -->
 <div class="card card-full">
     <div class="card-hd" style="border-bottom-color:#06b6d4;">
         <div class="card-hd-l"><i class="fa-solid fa-tractor" style="color:#06b6d4;"></i><span>จัดการรถตัดอ้อย</span></div>
@@ -75,69 +62,3 @@ $inactive_count = count($harvesters) - $active_count;
         </div>
     </div>
 </div>
-
-<!-- ── ผูกพนักงานกับรถตัด ── -->
-<div class="card card-full">
-    <div class="card-hd" style="border-bottom-color:#8b5cf6;">
-        <div class="card-hd-l"><i class="fa-solid fa-link" style="color:#8b5cf6;"></i><span>ผูกพนักงานกับรถตัด</span></div>
-        <span class="cnt-badge"><?php echo count($assigns); ?> รายการ</span>
-    </div>
-    <div class="card-bd">
-        <!-- ฟอร์ม assign -->
-        <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-bottom:14px;" class="assign-grid">
-            <select id="assign-emp" class="add-input" onfocus="this.style.borderColor='#8b5cf6'" onblur="this.style.borderColor='#e2e8f0'">
-                <option value="">-- เลือกพนักงาน --</option>
-                <?php foreach($employees as $emp): ?>
-                <option value="<?php echo htmlspecialchars($emp['emp_id']); ?>">
-                    <?php echo htmlspecialchars($emp['emp_name']); ?> (<?php echo htmlspecialchars($emp['emp_unit']); ?>)
-                </option>
-                <?php endforeach; ?>
-            </select>
-            <select id="assign-hv" class="add-input" onfocus="this.style.borderColor='#8b5cf6'" onblur="this.style.borderColor='#e2e8f0'">
-                <option value="">-- เลือกรถตัด --</option>
-                <?php foreach($harvesters as $hv): if(!$hv['is_active']) continue; ?>
-                <option value="<?php echo $hv['harvester_id']; ?>"><?php echo htmlspecialchars($hv['harvester_number']); ?></option>
-                <?php endforeach; ?>
-            </select>
-            <button class="btn-add" style="background:#8b5cf6;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" onclick="addAssign()">
-                <i class="fa-solid fa-link"></i> ผูก
-            </button>
-        </div>
-        <!-- รายการ assign -->
-        <div id="assign-list" class="scroll-list-7">
-            <?php if(empty($assigns)): ?>
-            <div class="empty-list"><i class="fa-solid fa-inbox" style="font-size:1.5rem;display:block;margin-bottom:6px;"></i>ยังไม่มีการผูก</div>
-            <?php else: ?>
-            <?php
-            // จัดกลุ่มตามรถตัด
-            $grouped = [];
-            foreach($assigns as $a) $grouped[$a['harvester_number']][] = $a;
-            foreach($grouped as $hvnum => $list):
-            ?>
-            <div style="margin-bottom:10px;">
-                <div style="font-size:.75rem;font-weight:700;color:#06b6d4;margin-bottom:5px;display:flex;align-items:center;gap:5px;">
-                    <i class="fa-solid fa-tractor"></i> <?php echo htmlspecialchars($hvnum); ?>
-                </div>
-                <?php foreach($list as $a): ?>
-                <div class="list-item" id="assign-<?php echo $a['id']; ?>" style="margin-left:12px;margin-bottom:4px;">
-                    <div class="list-item-text">
-                        <i class="fa-solid fa-user" style="color:#8b5cf6;font-size:.75rem;margin-right:5px;"></i>
-                        <?php echo htmlspecialchars($a['emp_name']); ?>
-                        <span style="font-size:.72rem;color:#94a3b8;margin-left:4px;">(<?php echo htmlspecialchars($a['emp_unit']); ?>)</span>
-                    </div>
-                    <button class="btn-del" onclick="deleteAssign(<?php echo $a['id']; ?>)"><i class="fa-solid fa-unlink"></i> ยกเลิก</button>
-                </div>
-                <?php endforeach; ?>
-            </div>
-            <?php endforeach; ?>
-            <?php endif; ?>
-        </div>
-    </div>
-</div>
-
-<style>
-@media(max-width:600px){
-    .assign-grid { grid-template-columns:1fr 1fr; grid-template-rows:auto auto; }
-    .assign-grid button { grid-column:1/-1; }
-}
-</style>

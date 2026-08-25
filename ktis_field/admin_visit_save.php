@@ -108,8 +108,6 @@ textarea.fi{resize:vertical;min-height:80px;}
 .detail-wrap{display:none;}
 .detail-wrap.show{display:block;}
 </style>
-</head>
-<body>
 <div class="content-wrapper">
 <div class="pw">
 

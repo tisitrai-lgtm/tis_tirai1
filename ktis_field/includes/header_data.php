@@ -36,6 +36,22 @@ if(isset($_SESSION['emp_id']) && isset($_SESSION['emp_unit'])) {
         error_log("Notification System Error: " . $e->getMessage());
     }
 }
-
 $current_page = basename($_SERVER['PHP_SELF']);
+
+// ── ตรวจสอบโหมดปิดปรับปรุงระบบ (Maintenance Mode) ──
+$is_maintenance = false;
+$is_admin = isset($_SESSION['emp_level']) && $_SESSION['emp_level'] === 'a';
+
+try {
+    $stmt_m = $conn->query("SELECT setting_value FROM system_settings WHERE setting_key = 'maintenance_mode'");
+    $m_val = $stmt_m ? $stmt_m->fetchColumn() : '0';
+    if ($m_val === '1') {
+        $is_maintenance = true;
+        $exempt_pages = ['maintenance.php', 'login.php', 'logout.php', 'api_settings.php'];
+        if (!$is_admin && !in_array($current_page, $exempt_pages)) {
+            header("Location: maintenance.php");
+            exit;
+        }
+    }
+} catch (Exception $e) {}
 ?>

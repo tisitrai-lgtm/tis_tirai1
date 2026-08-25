@@ -26,8 +26,8 @@ $sys_settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 </footer>
 
 <style>
-    html, body { height: 100%; margin: 0; }
-    body { display: flex; flex-direction: column; min-height: 100vh; background-color: #f8fafc; }
+    html { min-height: 100%; margin: 0; }
+    body { display: flex; flex-direction: column; min-height: 100vh; margin: 0; background-color: #f8fafc; }
     .content-wrapper { flex: 1 0 auto; }
     
    .main-footer-custom {

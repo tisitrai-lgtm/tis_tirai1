@@ -5,6 +5,21 @@ session_start();
 
 if(isset($_SESSION["emp_id"])){ header("location: index.php"); exit; }
 
+// ── ตรวจสอบโหมดปิดปรับปรุงระบบ ──
+$m_mode_active = false;
+$m_msg_text = 'ระบบกำลังปิดปรับปรุงชั่วคราว เพื่อพัฒนาและเพิ่มประสิทธิภาพการใช้งาน ขออภัยในความไม่สะดวก';
+$m_until_text = '';
+try {
+    $stmt_m = $conn->query("SELECT setting_key, setting_value FROM system_settings WHERE setting_key IN ('maintenance_mode', 'maintenance_message', 'maintenance_until')");
+    $m_settings = $stmt_m->fetchAll(PDO::FETCH_KEY_PAIR);
+    if (isset($m_settings['maintenance_mode']) && $m_settings['maintenance_mode'] === '1') {
+        $m_mode_active = true;
+    }
+    if (!empty($m_settings['maintenance_message'])) $m_msg_text = $m_settings['maintenance_message'];
+    if (!empty($m_settings['maintenance_until'])) $m_until_text = $m_settings['maintenance_until'];
+} catch(Exception $e) {}
+
+$show_maintenance_popup = false;
 $error = "";
 $login_success = false;
 if($_SERVER["REQUEST_METHOD"] == "POST"){
@@ -13,29 +28,38 @@ if($_SERVER["REQUEST_METHOD"] == "POST"){
     $crop_year = trim($_POST["crop_year"]);
 
     if(!empty($emp_id) && !empty($emp_pass) && !empty($crop_year)){
-        $sql = "SELECT emp_id, emp_name, emp_unit, emp_level, emp_pass FROM employee WHERE emp_id = :emp_id";
+        // ค้นหารหัสพนักงานโดยไม่สนใจตัวพิมพ์เล็ก/ใหญ่ (Case-Insensitive) และตัดช่องว่างอัตโนมัติ
+        $sql = "SELECT emp_id, emp_name, emp_unit, emp_level, emp_pass, status FROM employee WHERE LOWER(TRIM(emp_id)) = LOWER(TRIM(:emp_id)) LIMIT 1";
         if($stmt = $conn->prepare($sql)){
-            $stmt->bindParam(":emp_id", $emp_id, PDO::PARAM_STR);
+            $stmt->bindValue(":emp_id", $emp_id, PDO::PARAM_STR);
             if($stmt->execute() && $stmt->rowCount() == 1){
                 $row = $stmt->fetch();
-                $pass_ok = false;
-                if(password_verify($emp_pass, $row['emp_pass'])) {
-                    $pass_ok = true;
-                } elseif($row['emp_pass'] === md5($emp_pass)) {
-                    $pass_ok = true;
-                    $new_hash = password_hash($emp_pass, PASSWORD_DEFAULT);
-                    $conn->prepare("UPDATE employee SET emp_pass = ? WHERE emp_id = ?")->execute([$new_hash, $emp_id]);
-                }
-                if($pass_ok) {
-                    session_regenerate_id(true);
-                    $_SESSION["emp_id"]    = $row["emp_id"];
-                    $_SESSION["emp_name"]  = $row["emp_name"];
-                    $_SESSION["emp_unit"]  = $row["emp_unit"];
-                    $_SESSION["emp_level"] = $row["emp_level"];
-                    $_SESSION["crop_year"] = $crop_year;
+                if (isset($row['status']) && (int)$row['status'] === 0) {
+                    $error = "บัญชีผู้ใช้นี้ถูกระงับการใช้งาน กรุณาติดต่อผู้ดูแลระบบ";
+                } else {
+                    $pass_ok = false;
+                    if(password_verify($emp_pass, $row['emp_pass'])) {
+                        $pass_ok = true;
+                    } elseif($row['emp_pass'] === md5($emp_pass)) {
+                        $pass_ok = true;
+                        $new_hash = password_hash($emp_pass, PASSWORD_DEFAULT);
+                        $conn->prepare("UPDATE employee SET emp_pass = ? WHERE emp_id = ?")->execute([$new_hash, $row['emp_id']]);
+                    }
+                    if($pass_ok) {
+                        if ($m_mode_active && $row['emp_level'] !== 'a') {
+                            $show_maintenance_popup = true;
+                        } else {
+                            session_regenerate_id(true);
+                            $_SESSION["emp_id"]    = $row["emp_id"];
+                            $_SESSION["emp_name"]  = $row["emp_name"];
+                            $_SESSION["emp_unit"]  = $row["emp_unit"];
+                            $_SESSION["emp_level"] = $row["emp_level"];
+                            $_SESSION["crop_year"] = $crop_year;
 
-                    $login_success = true;
-                } else { $error = "รหัสผ่านไม่ถูกต้อง"; }
+                            $login_success = true;
+                        }
+                    } else { $error = "รหัสผ่านไม่ถูกต้อง"; }
+                }
             } else { $error = "ไม่พบรหัสพนักงานนี้ในระบบ"; }
         }
     } else { $error = "กรุณากรอกข้อมูลให้ครบถ้วน"; }
@@ -166,19 +190,85 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
         .alert i { flex-shrink: 0; }
         @keyframes slideDownFade { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
 
+        /* ── Modern Card Loader ── */
         #initial-loader {
-            position: fixed; inset: 0; background: #0f172a; z-index: 9999;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            transition: opacity 0.5s ease;
+            position: fixed; inset: 0; z-index: 99999;
+            display: flex; align-items: center; justify-content: center;
+            background: radial-gradient(circle at center, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.97) 100%);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.45s;
         }
-        .loader-text {
-            color: #f8fafc; font-size: 1.1rem; font-weight: 700; margin-bottom: 15px;
-            letter-spacing: 0.05em; animation: pulseText 1.5s infinite;
+        .modern-loader-card {
+            position: relative; width: 90%; max-width: 320px;
+            padding: 32px 28px 24px;
+            background: rgba(30, 41, 59, 0.85);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 30px rgba(225, 29, 72, 0.18);
+            display: flex; flex-direction: column; align-items: center; text-align: center;
+            animation: loaderCardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
-        .loader-bar-bg { width: 220px; height: 4px; background: #1e293b; border-radius: 4px; overflow: hidden; }
-        .loader-bar-fill { width: 0%; height: 100%; background: #e11d48; border-radius: 4px; animation: loadingBarAnim 1s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-        @keyframes loadingBarAnim { 0% { width: 0%; } 100% { width: 100%; } }
-        @keyframes pulseText { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        @keyframes loaderCardIn {
+            0% { opacity: 0; transform: scale(0.92) translateY(15px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+        .modern-loader-icon-wrap {
+            position: relative; width: 64px; height: 64px; margin-bottom: 18px;
+        }
+        .modern-loader-icon-glow {
+            position: absolute; inset: -4px; border-radius: 20px;
+            background: linear-gradient(135deg, #e11d48, #10b981);
+            opacity: 0.6; filter: blur(10px);
+            animation: glowPulse 2.5s ease-in-out infinite alternate;
+        }
+        .modern-loader-icon {
+            position: relative; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #e11d48, #be123c);
+            border-radius: 18px; display: flex; align-items: center; justify-content: center;
+            color: #ffffff; font-size: 1.75rem;
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 8px 20px rgba(225, 29, 72, 0.35);
+            animation: iconBob 2s ease-in-out infinite alternate;
+        }
+        @keyframes iconBob { 0% { transform: translateY(0); } 100% { transform: translateY(-4px); } }
+        @keyframes glowPulse { 0% { opacity: 0.35; transform: scale(0.95); } 100% { opacity: 0.75; transform: scale(1.08); } }
+
+        .modern-loader-title {
+            font-size: 1.15rem; font-weight: 800; color: #f8fafc;
+            letter-spacing: 0.04em; margin-bottom: 4px;
+        }
+        .modern-loader-title .highlight-red { color: #e11d48; }
+        .modern-loader-subtitle {
+            font-size: 0.85rem; color: #94a3b8; margin-bottom: 22px; font-weight: 500;
+        }
+        .modern-loader-bar-wrap { width: 100%; margin-bottom: 16px; }
+        .modern-loader-bar-track {
+            position: relative; width: 100%; height: 6px;
+            background: rgba(148, 163, 184, 0.18); border-radius: 999px; overflow: hidden;
+        }
+        .modern-loader-bar-fill {
+            position: absolute; top: 0; left: 0; height: 100%; width: 45%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #e11d48, #f43f5e, #10b981);
+            background-size: 200% 100%;
+            animation: loaderBeam 1.4s ease-in-out infinite;
+        }
+        @keyframes loaderBeam {
+            0% { left: -45%; width: 35%; }
+            50% { width: 55%; }
+            100% { left: 100%; width: 35%; }
+        }
+        .modern-loader-footer {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 0.72rem; color: #64748b; font-weight: 600; letter-spacing: 0.02em;
+        }
+        .modern-loader-footer .live-dot {
+            width: 6px; height: 6px; background: #10b981; border-radius: 50%;
+            box-shadow: 0 0 8px #10b981; animation: pulseDot 1.5s infinite;
+        }
+        @keyframes pulseDot { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } }
+        .dot-typing { display: inline-block; animation: dotBlink 1.4s infinite; }
+        @keyframes dotBlink { 0%, 20% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0; } }
 
         .form-group { margin-bottom: 16px; }
         .form-label { display: block; margin-bottom: 6px; font-weight: 700; font-size: 0.82rem; color: #374151; }
@@ -227,12 +317,219 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
 
         .login-footer { margin-top: 18px; text-align: center; font-size: .75rem; color: #64748b; }
 
-        /* SweetAlert ฟอนต์ไทย */
-        .swal2-popup { font-family: 'Sarabun', sans-serif !important; }
+        /* ── Maintenance Modal Popup on Login ── */
+        .m-modal-overlay {
+            position: fixed; inset: 0; z-index: 999999;
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px 16px;
+            animation: mFadeIn 0.3s ease-out;
+        }
+        @keyframes mFadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        @media(max-width:420px){
-            .card-body { padding: 24px 18px 22px; }
-            .logo-title { font-size: 1.35rem; }
+        .m-modal-card {
+            background: rgba(30, 41, 59, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 28px;
+            padding: 36px 26px 30px;
+            max-width: 440px; width: 100%;
+            text-align: center;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(225, 29, 72, 0.15);
+            animation: mSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            position: relative;
+        }
+        @keyframes mSlideUp {
+            from { opacity: 0; transform: translateY(25px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .m-icon-box {
+            position: relative; width: 84px; height: 84px;
+            margin: 0 auto 18px; display: flex; align-items: center; justify-content: center;
+        }
+        .m-gear-big {
+            position: absolute; font-size: 4.5rem; color: rgba(245, 158, 11, 0.15);
+            animation: mRotate 18s linear infinite;
+        }
+        .m-gear-small {
+            position: absolute; font-size: 2.5rem; color: rgba(225, 29, 72, 0.2);
+            top: -6px; right: -6px; animation: mRotateRev 12s linear infinite;
+        }
+        .m-icon-center {
+            position: relative; width: 62px; height: 62px;
+            background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+            border-radius: 18px; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 20px rgba(225, 29, 72, 0.4); border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        .m-icon-center i { font-size: 1.7rem; color: #ffffff; animation: mWrench 2.5s ease-in-out infinite; }
+
+        @keyframes mRotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes mRotateRev { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+        @keyframes mWrench {
+            0%, 100% { transform: rotate(0deg); }
+            20% { transform: rotate(-15deg); }
+            40% { transform: rotate(10deg); }
+            60% { transform: rotate(-5deg); }
+            80% { transform: rotate(5deg); }
+        }
+
+        .m-badge {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fbbf24; padding: 5px 14px; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 700; margin-bottom: 14px;
+        }
+        .m-dot {
+            width: 7px; height: 7px; background: #f59e0b; border-radius: 50%;
+            box-shadow: 0 0 8px #f59e0b; animation: mPulse 1.5s infinite;
+        }
+        @keyframes mPulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } }
+
+        .m-title { font-size: 1.4rem; font-weight: 800; color: #ffffff; margin-bottom: 10px; }
+        .m-title span { color: #f43f5e; }
+        .m-desc { font-size: 0.9rem; color: #cbd5e1; line-height: 1.6; margin-bottom: 20px; font-weight: 400; }
+
+        .m-time-box {
+            background: rgba(15, 23, 42, 0.6); border: 1px dashed rgba(245, 158, 11, 0.4);
+            border-radius: 12px; padding: 10px 14px; margin-bottom: 22px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+            font-size: 0.85rem; color: #fde68a; font-weight: 600;
+        }
+        .m-time-box i { color: #f59e0b; }
+
+        .m-btn-close {
+            width: 100%; padding: 13px 18px;
+            background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+            color: #ffffff; border: none; border-radius: 12px;
+            font-size: 0.95rem; font-weight: 700; font-family: inherit;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;
+            box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35); transition: all 0.2s ease;
+        }
+        .m-btn-close:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(225, 29, 72, 0.45); }
+
+        /* ── Login Success Theme Modal ── */
+        .success-screen-overlay {
+            position: fixed; inset: 0; z-index: 999999;
+            background: radial-gradient(circle at center, rgba(15, 23, 42, 0.88) 0%, rgba(15, 23, 42, 0.98) 100%);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            display: flex; align-items: center; justify-content: center;
+            padding: 20px 16px;
+            animation: sFadeIn 0.35s ease-out;
+        }
+        @keyframes sFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .success-card {
+            background: rgba(30, 41, 59, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 28px;
+            padding: 36px 28px 26px;
+            max-width: 420px; width: 100%;
+            text-align: center;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(16, 185, 129, 0.2);
+            animation: sSlideUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            position: relative;
+        }
+        @keyframes sSlideUp {
+            from { opacity: 0; transform: translateY(25px) scale(0.94); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .success-icon-wrap {
+            position: relative; width: 78px; height: 78px;
+            margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;
+        }
+        .success-icon-glow {
+            position: absolute; inset: -4px; border-radius: 50%;
+            background: radial-gradient(circle, #10b981 0%, rgba(16, 185, 129, 0) 70%);
+            filter: blur(10px);
+            animation: sPulseGlow 2s infinite alternate;
+        }
+        @keyframes sPulseGlow {
+            0% { transform: scale(0.9); opacity: 0.5; }
+            100% { transform: scale(1.3); opacity: 0.9; }
+        }
+
+        .success-icon {
+            position: relative; width: 66px; height: 66px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.45);
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            animation: sCheckPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes sCheckPop {
+            0% { transform: scale(0); }
+            70% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+        .success-icon i { font-size: 1.85rem; color: #ffffff; }
+
+        .success-badge {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35);
+            color: #34d399; padding: 4px 14px; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 700; margin-bottom: 12px;
+        }
+        .success-dot {
+            width: 7px; height: 7px; background: #10b981; border-radius: 50%;
+            box-shadow: 0 0 8px #10b981; animation: sDotPulse 1.5s infinite;
+        }
+        @keyframes sDotPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.4); } }
+
+        .success-title {
+            font-size: 1.25rem; font-weight: 800; color: #ffffff; margin-bottom: 16px;
+        }
+        .success-title .highlight-red { color: #f43f5e; }
+
+        .success-user-box {
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px; padding: 12px 16px; margin-bottom: 20px;
+            display: flex; align-items: center; gap: 12px; text-align: left;
+        }
+        .success-avatar {
+            width: 44px; height: 44px; border-radius: 12px;
+            background: linear-gradient(135deg, #e11d48, #be123c);
+            display: flex; align-items: center; justify-content: center;
+            color: #fff; font-size: 1.1rem; flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(225, 29, 72, 0.3);
+        }
+        .success-user-info { flex-grow: 1; }
+        .success-user-info .user-name {
+            font-size: 0.95rem; font-weight: 800; color: #f8fafc; margin-bottom: 2px;
+        }
+        .success-user-info .user-unit {
+            font-size: 0.78rem; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 4px;
+        }
+        .success-user-info .user-unit i { color: #e11d48; }
+
+        .success-bar-wrap { width: 100%; margin-bottom: 12px; }
+        .success-bar-track {
+            height: 6px; width: 100%; background: rgba(255, 255, 255, 0.1);
+            border-radius: 999px; overflow: hidden; margin-bottom: 8px;
+        }
+        .success-bar-fill {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, #10b981, #34d399);
+            border-radius: 999px;
+            animation: sProgressFill 1.3s ease-in-out forwards;
+        }
+        @keyframes sProgressFill {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+        .success-bar-label {
+            font-size: 0.8rem; color: #cbd5e1; font-weight: 600;
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+        }
+        .success-bar-label i { color: #10b981; }
+
+        .success-footer {
+            margin-top: 16px; font-size: 0.72rem; color: #64748b;
+            border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 12px;
         }
     </style>
     <link rel="stylesheet" href="global_smoothness.css">
@@ -247,10 +544,32 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
 
 <!-- Initial Loading Screen -->
 <?php if(!$login_success): ?>
-<div id="initial-loader">
-    <div class="loader-text">กำลังโหลดข้อมูลระบบ...</div>
-    <div class="loader-bar-bg">
-        <div class="loader-bar-fill"></div>
+<div id="initial-loader" class="modern-loader-backdrop">
+    <div class="modern-loader-card">
+        <div class="modern-loader-icon-wrap">
+            <div class="modern-loader-icon-glow"></div>
+            <div class="modern-loader-icon">
+                <i class="fa-solid fa-tractor"></i>
+            </div>
+        </div>
+
+        <div class="modern-loader-title">
+            TIS <span class="highlight-red">SMART FIELD</span>
+        </div>
+        <div class="modern-loader-subtitle">
+            กำลังโหลดข้อมูลระบบ<span class="dot-typing">...</span>
+        </div>
+
+        <div class="modern-loader-bar-wrap">
+            <div class="modern-loader-bar-track">
+                <div class="modern-loader-bar-fill"></div>
+            </div>
+        </div>
+
+        <div class="modern-loader-footer">
+            <span class="live-dot"></span>
+            <span>ฝ่ายส่งเสริมและพัฒนาอ้อย</span>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -292,7 +611,7 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
                 <div class="form-group">
                     <label class="form-label"><i class="fa-solid fa-id-badge"></i>รหัสพนักงาน</label>
                     <input type="text" name="emp_id" id="emp_id" class="form-control"
-                           placeholder="กรอกรหัสพนักงาน" required autocomplete="username">
+                           placeholder="กรอกรหัสพนักงาน (ตัวเล็ก/ใหญ่ก็ได้)" required autocomplete="username" autocapitalize="none" spellcheck="false">
                 </div>
 
                 <div class="form-group">
@@ -335,7 +654,105 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
 
 </div>
 
+<?php if (!empty($show_maintenance_popup)): ?>
+<!-- ══════════════════════════════════════════ -->
+<!-- 🚧 Popup แจ้งเตือนปิดปรับปรุงระบบสำหรับ User -->
+<!-- ══════════════════════════════════════════ -->
+<div class="m-modal-overlay" id="mModalOverlay" onclick="closeMaintenanceModal()">
+    <div class="m-modal-card" onclick="event.stopPropagation()">
+        <div class="m-icon-box">
+            <i class="fa-solid fa-gear m-gear-big"></i>
+            <i class="fa-solid fa-gear m-gear-small"></i>
+            <div class="m-icon-center">
+                <i class="fa-solid fa-screwdriver-wrench"></i>
+            </div>
+        </div>
+
+        <div class="m-badge">
+            <span class="m-dot"></span>
+            <span>กำลังปิดปรับปรุงระบบชั่วคราว</span>
+        </div>
+
+        <div class="m-title">TIS <span>SMART FIELD</span></div>
+        <div class="m-desc">
+            <?php echo nl2br(htmlspecialchars($m_msg_text)); ?>
+        </div>
+
+        <?php if(!empty($m_until_text)): ?>
+        <div class="m-time-box">
+            <i class="fa-solid fa-clock"></i>
+            <span>คาดว่าจะเปิดให้บริการ: <strong><?php echo htmlspecialchars($m_until_text); ?></strong></span>
+        </div>
+        <?php endif; ?>
+
+        <button type="button" class="m-btn-close" onclick="closeMaintenanceModal()">
+            <i class="fa-solid fa-check"></i> รับทราบ
+        </button>
+
+        <div class="m-footer">
+            บริษัท น้ำตาลไทยเอกลักษณ์ จำกัด · ฝ่ายไร่
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if($login_success): ?>
+<!-- ══════════════════════════════════════════ -->
+<!-- 🟢 หน้าต่างแจ้งเตือนเข้าสู่ระบบสำเร็จตรงธีม -->
+<!-- ══════════════════════════════════════════ -->
+<div class="success-screen-overlay">
+    <div class="success-card">
+        <div class="success-icon-wrap">
+            <div class="success-icon-glow"></div>
+            <div class="success-icon">
+                <i class="fa-solid fa-check"></i>
+            </div>
+        </div>
+
+        <div class="success-badge">
+            <span class="success-dot"></span>
+            <span>ยืนยันตัวตนสำเร็จ</span>
+        </div>
+
+        <div class="success-title">
+            ยินดีต้อนรับสู่ TIS <span class="highlight-red">SMART FIELD</span>
+        </div>
+
+        <div class="success-user-box">
+            <div class="success-avatar">
+                <i class="fa-solid fa-user"></i>
+            </div>
+            <div class="success-user-info">
+                <div class="user-name"><?php echo htmlspecialchars($_SESSION['emp_name'] ?? ''); ?></div>
+                <div class="user-unit"><i class="fa-solid fa-location-dot"></i> หน่วยส่งเสริม: <?php echo htmlspecialchars($_SESSION['emp_unit'] ?? ''); ?></div>
+            </div>
+        </div>
+
+        <div class="success-bar-wrap">
+            <div class="success-bar-track">
+                <div class="success-bar-fill"></div>
+            </div>
+            <div class="success-bar-label">
+                <i class="fa-solid fa-spinner fa-spin"></i> กำลังเข้าสู่หน้าหลัก...
+            </div>
+        </div>
+
+        <div class="success-footer">
+            TIS SMART FIELD · ฝ่ายไร่
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <script>
+    function closeMaintenanceModal(){
+        const modal = document.getElementById('mModalOverlay');
+        if(modal){
+            modal.style.opacity = '0';
+            modal.style.transition = 'opacity 0.25s ease';
+            setTimeout(() => modal.remove(), 250);
+        }
+    }
     // PWA Install
     let deferredPrompt;
     window.addEventListener('beforeinstallprompt', (e) => {
@@ -400,23 +817,12 @@ $default_year = $active_year ?: ($base_year . '/' . ($base_year + 1));
         }
     });
 
-    // ── SweetAlert2: popup เข้าสู่ระบบสำเร็จ ──
+    // ── เปลี่ยนหน้าอัตโนมัติเมื่อเข้าสู่ระบบสำเร็จ ──
     <?php if($login_success): ?>
     document.addEventListener('DOMContentLoaded', function(){
-        Swal.fire({
-            icon: 'success',
-            title: 'เข้าสู่ระบบสำเร็จ!',
-            text: 'กำลังพาท่านเข้าสู่หน้าหลัก...',
-            confirmButtonColor: '#10b981',
-            timer: 1500,
-            timerProgressBar: true,
-            showConfirmButton: false,
-            allowOutsideClick: false,
-            allowEscapeKey: false,
-            didOpen: () => { Swal.showLoading(); }
-        }).then(() => {
+        setTimeout(() => {
             window.location.href = 'index.php';
-        });
+        }, 1300);
     });
     <?php endif; ?>
 </script>

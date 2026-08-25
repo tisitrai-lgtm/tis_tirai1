@@ -9,10 +9,10 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 $current_page = basename($_SERVER['PHP_SELF']);
 ?>
-<?php if(isset($_SESSION['emp_level']) && $_SESSION['emp_level'] == 'a'): ?>
+<?php if(isset($_SESSION['emp_level']) && in_array($_SESSION['emp_level'], ['a', 'm'])): ?>
 <style>
 /* ══════════════════════════════════════
-   KTIS SMART FIELD — Admin Sidebar
+   KTIS SMART FIELD — Admin/Mechanic Sidebar
    ══════════════════════════════════════ */
 .page-wrapper {
     display: flex;
@@ -24,16 +24,16 @@ $current_page = basename($_SERVER['PHP_SELF']);
 /* ── Sidebar ── */
 .admin-sidebar {
     position: sticky;
-    top: 0px;                     /* เปลี่ยนจาก 56px เป็น 0 เพื่อให้ลากยาวขึ้นไปชิดขอบบนสุด */
-    width:208px;
-    height: 100vh;                /* เปลี่ยนจาก calc(100vh - 56px) เป็น 100vh ให้ยาวเต็มจอ */
+    top: 0px;
+    width: 208px;
+    height: 100vh;
     background: #1e293b;
-    border-right:1px solid #e2e8f0;
-    box-shadow:2px 0 12px rgba(15,23,42,.05);
-    padding:16px 10px 20px;      /* เพิ่ม padding ด้านบนนิดหน่อยเพราะไม่มีกล่องโปรไฟล์แล้ว */
+    border-right: 1px solid #e2e8f0;
+    box-shadow: 2px 0 12px rgba(15,23,42,.05);
+    padding: 16px 10px 20px;
     flex-shrink: 0;
     overflow-y: auto;
-    z-index: 100;                 /* ปรับ z-index ให้ต่ำกว่า Navbar (ถ้า Navbar อยู่ที่ 1000) เพื่อให้ Navbar ทับได้สนิท */
+    z-index: 100;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -49,44 +49,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
     min-width: 0;
     overflow-x: hidden;
 }
-
-/* ── Profile box ── */
-.sb-profile {
-    background: linear-gradient(135deg, #334155, #1e293b);
-    border: 1px solid rgba(255,255,255,.08);
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 8px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.sb-avatar {
-    width: 38px; height: 38px;
-    background: #e11d48;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: .85rem; font-weight: 700; color: #fff;
-    flex-shrink: 0;
-}
-.sb-name  { font-weight: 700; font-size: .85rem; color: #f8fafc; line-height: 1.3; }
-.sb-unit  { font-size: .72rem; color: #64748b; margin-top: 1px; }
-.sb-badge {
-    display: inline-flex; align-items: center; gap: 3px;
-    background: rgba(225,29,72,.15); color: #f43f5e;
-    font-size: .68rem; font-weight: 700;
-    padding: 1px 7px; border-radius: 10px; margin-top: 3px;
-    border: 1px solid rgba(225,29,72,.2);
-}
-
-/* ── Crop year chip ── */
-.sb-crop {
-    display: flex; align-items: center; justify-content: space-between;
-    background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.2);
-    border-radius: 8px; padding: 8px 12px; margin-bottom: 4px;
-}
-.sb-crop-label { font-size: .75rem; color: #64748b; }
-.sb-crop-val   { font-size: .82rem; font-weight: 700; color: #10b981; }
 
 /* ── Section label ── */
 .sb-section {
@@ -112,17 +74,6 @@ $current_page = basename($_SERVER['PHP_SELF']);
 /* ── Divider ── */
 .sb-divider { height: 1px; background: rgba(255,255,255,.07); margin: 6px 0; }
 
-/* ── Logout ── */
-.sb-logout {
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px; border-radius: 8px;
-    color: #f43f5e; text-decoration: none;
-    font-size: .88rem; font-weight: 700;
-    transition: background .13s;
-    margin-top: auto;
-}
-.sb-logout:hover { background: rgba(244,63,94,.1); }
-
 /* ── Responsive: ซ่อน sidebar บนมือถือ ── */
 @media (max-width: 900px) {
     .admin-sidebar   { display: none; }
@@ -131,15 +82,21 @@ $current_page = basename($_SERVER['PHP_SELF']);
 </style>
 
 <?php
-$initials = mb_substr(trim($_SESSION['emp_name'] ?? 'A'), 0, 2, 'UTF-8');
+$is_admin = ($_SESSION['emp_level'] ?? '') === 'a';
+$is_mech  = ($_SESSION['emp_level'] ?? '') === 'm';
 
-// เมนูรายการ [href, icon, label]
+// เมนูหลักสำหรับ Admin และ นายช่าง
 $menu_main = [
-    ['index.php',                  'fa-house',         'หน้าแรกฟีด'],
-    ['harvester_daily_dashboard.php','fa-gauge-high',   'การเช็ครถตัดประจำวัน'],
-    ['harvester_admin.php',        'fa-tractor',      'ตรวจเช็กรถตัด'],
-    ['dashboard.php',        'fa-solid fa-chart-area',      'สรุปปัญหาฝ่ายไร่'],
+    ['index.php',                  'fa-house',            'หน้าแรกฟีด'],
+    ['harvester_daily_dashboard.php','fa-gauge-high',      'การเช็ครถตัดประจำวัน'],
+    ['harvester_map.php',          'fa-map-location-dot', 'แผนที่พิกัดรถตัด'],
+    ['harvester_admin.php',        'fa-tractor',          'ผลตรวจเช็กรถตัด'],
 ];
+
+if ($is_admin) {
+    $menu_main[] = ['dashboard.php', 'fa-chart-area', 'สรุปปัญหาฝ่ายไร่'];
+}
+
 $menu_admin = [
     ['manage_users.php', 'fa-users-gear',    'จัดการพนักงาน'],
     ['report_all.php',   'fa-chart-line',    'รายงานภาพรวม'],
@@ -149,9 +106,8 @@ $menu_admin = [
 
 <div class="admin-sidebar">
 
-   
     <!-- Main menu -->
-    <div class="sb-section">เมนูหลัก</div>
+    <div class="sb-section"><?php echo $is_mech ? 'เมนูนายช่าง' : 'เมนูหลัก'; ?></div>
     <?php foreach($menu_main as [$href, $icon, $label]):
         $active = ($current_page === $href) ? 'active' : '';
     ?>
@@ -160,6 +116,7 @@ $menu_admin = [
     </a>
     <?php endforeach; ?>
 
+    <?php if($is_admin): ?>
     <div class="sb-divider"></div>
 
     <!-- Admin menu -->
@@ -171,11 +128,7 @@ $menu_admin = [
         <i class="fa-solid <?php echo $icon; ?>"></i> <?php echo $label; ?>
     </a>
     <?php endforeach; ?>
-
-    <div class="sb-divider"></div>
-
-    <!-- Logout -->
-   
+    <?php endif; ?>
 
 </div>
 <?php endif; ?>

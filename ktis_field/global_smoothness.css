@@ -3,16 +3,6 @@
    เพิ่มความนุ่มนวลในการเปลี่ยนหน้าเว็บและกดปุ่ม
    ══════════════════════════════════════ */
 
-/* อนิเมชันเมื่อโหลดหน้าใหม่ ช่วยลดอาการจอกะพริบโดยไม่ให้หน้าจอเป็นสีขาว */
-body {
-    animation: smoothPageLoad 0.3s ease-out forwards !important;
-}
-
-@keyframes smoothPageLoad {
-    from { opacity: 0.6; }
-    to { opacity: 1; }
-}
-
 /* ทำให้ลิงก์และปุ่มทั้งหมดมีการเปลี่ยนสถานะแบบนุ่มนวล โดยบังคับทับ (Override) CSS เดิมที่ฝังในแต่ละหน้า */
 button, a, input[type="submit"], input[type="button"], .btn-submit, .btn-search, .btn-toggle-form, .btn-logout, .tab-item {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -30,4 +20,22 @@ button:active, a:active, input[type="submit"]:active, .btn-search:active, .btn-s
 .filter-card:hover, .feed-card:hover {
     box-shadow: 0 8px 16px rgba(0,0,0,0.06) !important;
     transform: translateY(-2px) !important;
+}
+
+/* ══════════════════════════════════════
+   [iOS Safari & WebKit Date Input Fix]
+   ป้องกันช่องวันที่ล้นกรอบหรือขยายเกินขนาดหน้าจอบน iPhone / iPad
+   ══════════════════════════════════════ */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}
+input[type="date"]::-webkit-date-and-time-value {
+    text-align: left !important;
+    min-height: 1.3em;
 }

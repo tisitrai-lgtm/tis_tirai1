@@ -1,7 +1,7 @@
 <?php
 /**
  * includes/feed_post_form.php
- * ฟอร์มสร้างโพสต์ใหม่ (เฉพาะ Admin ออฟฟิศกลาง)
+ * ฟอร์มสร้างโพสต์ใหม่แบบ Modern Floating Action Button (FAB) + Modal Popup (เฉพาะ Admin)
  * @var array  $zones
  * @var array  $_SESSION
  */
@@ -9,95 +9,337 @@
 <?php if(($_SESSION['emp_level'] ?? '') === 'a'): ?>
 
 <style>
-/* ── feed_post_form: theme styles ── */
-.admin-action-zone { margin-bottom: 20px; text-align: right; }
-
-.btn-toggle-form {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 11px 22px; background: #e11d48; color: white;
-    border: none; border-radius: 25px; font-weight: 700;
-    font-family: 'Sarabun', sans-serif; font-size: 0.95rem;
-    cursor: pointer; transition: background .15s;
-    box-shadow: 0 3px 10px rgba(225,29,72,.25);
+/* ── Floating Action Button (FAB) ── */
+.fab-post-btn {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+    color: #ffffff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 10px 25px rgba(225, 29, 72, 0.45), 0 4px 10px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    outline: none;
 }
-.btn-toggle-form:hover { background: #be123c; }
-
-.admin-post-card {
-    display: none; background: white;
-    border-radius: 14px; border: .5px solid #e2e8f0;
-    margin-top: 14px; overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,.07);
+.fab-post-btn:hover {
+    transform: scale(1.1) translateY(-3px);
+    box-shadow: 0 14px 30px rgba(225, 29, 72, 0.55), 0 6px 12px rgba(0, 0, 0, 0.2);
+}
+.fab-post-btn:active {
+    transform: scale(0.95);
+}
+.fab-post-btn i {
+    font-size: 1.5rem;
+    transition: transform 0.25s ease;
+}
+.fab-post-btn:hover i {
+    transform: rotate(90deg);
 }
 
-/* card header bar */
-.form-card-header {
-    background: #1e293b; padding: 14px 20px;
-    display: flex; align-items: center; gap: 10px;
+/* Tooltip on Desktop hover */
+.fab-post-btn::before {
+    content: "แจ้งเรื่อง / เพิ่มโพสต์";
+    position: absolute;
+    right: 70px;
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 6px 14px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(10px);
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.fab-post-btn:hover::before {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Mobile & Tablet Positioning (Above Bottom Nav) */
+@media (max-width: 1024px) {
+    .fab-post-btn {
+        bottom: 85px !important;
+        right: 20px !important;
+        width: 56px;
+        height: 56px;
+    }
+    .fab-post-btn::before {
+        display: none !important;
+    }
+}
+
+/* ── Post Creation Modal Popup ── */
+.post-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 2147483648;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 14px;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+}
+.post-modal-overlay.show {
+    display: flex;
+    opacity: 1;
+}
+
+.post-modal-card {
+    background: #ffffff;
+    border-radius: 24px;
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    max-width: 540px;
+    width: 100%;
+    max-height: calc(100dvh - 36px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 35px rgba(225, 29, 72, 0.1);
+    transform: translateY(30px) scale(0.96);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.post-modal-overlay.show .post-modal-card {
+    transform: translateY(0) scale(1);
+}
+
+/* Modal Header */
+.post-modal-header {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     border-bottom: 3px solid #e11d48;
+    flex-shrink: 0;
 }
-.form-card-header i  { color: #e11d48; font-size: 1rem; }
-.form-card-header span { color: #f8fafc; font-weight: 700; font-size: .95rem; }
+.post-modal-header .header-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #f8fafc;
+    font-weight: 800;
+    font-size: 1rem;
+}
+.post-modal-header .header-title i {
+    color: #e11d48;
+    font-size: 1.1rem;
+}
+.btn-close-modal {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: #cbd5e1;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    transition: all 0.15s ease;
+}
+.btn-close-modal:hover {
+    background: #e11d48;
+    color: #ffffff;
+    transform: rotate(90deg);
+}
 
-.form-card-body { padding: 20px; }
+/* Modal Body */
+.post-modal-body {
+    padding: 18px 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+.post-modal-body::-webkit-scrollbar {
+    width: 5px;
+}
+.post-modal-body::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 10px;
+}
 
-/* labels */
+/* Form Labels & Inputs */
 .field-label {
-    display: block; font-weight: 700; font-size: .83rem;
-    color: #374151; margin-bottom: 7px;
+    display: block;
+    font-weight: 700;
+    font-size: 0.86rem;
+    color: #334155;
+    margin-bottom: 6px;
 }
 .field-label .req { color: #e11d48; }
-.field-label .hint { font-weight: 400; color: #94a3b8; font-size: .78rem; margin-left: 5px; }
+.field-label .hint { font-weight: 400; color: #94a3b8; font-size: .76rem; margin-left: 4px; }
 
-/* inputs */
 .form-field {
-    width: 100%; padding: 10px 13px;
-    border: 1.5px solid #e2e8f0; border-radius: 8px;
-    font-size: .95rem; font-family: 'Sarabun', sans-serif;
-    background: #f8fafc; color: #1e293b; outline: none;
-    transition: border-color .15s, background .15s;
+    width: 100%;
+    padding: 9px 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 11px;
+    font-size: .9rem;
+    font-weight: 600;
+    background: #f8fafc;
+    color: #1e293b;
+    outline: none;
+    transition: all 0.2s ease;
+    font-family: inherit;
 }
-.form-field:focus { border-color: #e11d48; background: white; }
-select.form-field { cursor: pointer; height: 44px; }
-textarea.form-field { resize: vertical; }
+.form-field:focus {
+    border-color: #e11d48;
+    background: #ffffff;
+    box-shadow: 0 0 0 3.5px rgba(225, 29, 72, 0.12);
+}
+select.form-field {
+    cursor: pointer;
+    height: 42px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2.5' stroke='%23e11d48'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 15px 15px;
+    padding-right: 36px;
+}
+textarea.form-field { resize: vertical; min-height: 65px; }
 
-/* 2 col grid */
-.form-grid-2x { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+.form-grid-2x { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.prob-selects-stack { display: flex; flex-direction: column; gap: 7px; margin-bottom: 14px; }
 
-/* prob selects */
-.prob-selects-stack { display: flex; flex-direction: column; gap: 7px; margin-bottom: 16px; }
-
-/* image upload */
+/* Image Upload Section */
 .img-upload-section { margin-bottom: 16px; }
-.img-upload-grid { display: flex; flex-direction: column; gap: 8px; background: #f8fafc; padding: 14px; border-radius: 10px; border: 1.5px dashed #e2e8f0; }
-.img-upload-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.img-upload-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: #f8fafc;
+    padding: 12px;
+    border-radius: 12px;
+    border: 1.5px dashed #cbd5e1;
+}
+.img-upload-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .img-upload-label {
-    cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
-    padding: 8px 16px; background: white; border: 1.5px solid #e2e8f0;
-    border-radius: 8px; font-size: .85rem; font-weight: 700;
-    color: #475569; font-family: 'Sarabun', sans-serif;
-    transition: all .15s;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 9px;
+    font-size: .82rem;
+    font-weight: 700;
+    color: #475569;
+    transition: all .2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
 }
-.img-upload-label:hover { background: #fee2e2; border-color: #e11d48; color: #e11d48; }
+.img-upload-label:hover {
+    background: #fee2e2;
+    border-color: #e11d48;
+    color: #e11d48;
+    transform: translateY(-1px);
+}
 .img-upload-label i { color: #e11d48; }
-.img-preview-text { font-size: .78rem; color: #10b981; font-weight: 600; }
+.img-preview-text { font-size: .8rem; color: #10b981; font-weight: 700; }
 
-/* divider */
-.form-divider { border: none; border-top: 1px solid #f1f5f9; margin: 16px 0; }
+.form-divider { border: none; border-top: 1px solid #f1f5f9; margin: 14px 0; }
 
-/* submit */
+/* Submit Button */
 .btn-submit-post {
-    width: 100%; padding: 13px;
-    background: #1e293b; color: white;
-    border: none; border-radius: 9px;
-    font-size: 1rem; font-weight: 700;
-    font-family: 'Sarabun', sans-serif; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-    transition: background .15s;
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 800;
+    font-family: inherit;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all .2s ease;
+    box-shadow: 0 4px 15px rgba(225, 29, 72, 0.35);
 }
-.btn-submit-post:hover { background: #0f172a; }
+.btn-submit-post:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(225, 29, 72, 0.45);
+}
+.btn-submit-post:active { transform: translateY(0); }
 
 @media (max-width: 600px) {
-    .form-grid-2x { grid-template-columns: 1fr; }
+    .post-modal-overlay {
+        padding: 10px 10px;
+    }
+    .post-modal-card {
+        border-radius: 18px;
+        max-height: calc(100dvh - 24px);
+    }
+    .post-modal-header {
+        padding: 11px 14px;
+    }
+    .post-modal-header .header-title {
+        font-size: 0.92rem;
+    }
+    .post-modal-body {
+        padding: 12px 14px;
+    }
+    .form-grid-2x {
+        grid-template-columns: 1fr;
+        gap: 9px;
+        margin-bottom: 10px;
+    }
+    .prob-selects-stack {
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+    .field-label {
+        font-size: 0.8rem;
+        margin-bottom: 4px;
+    }
+    .form-field {
+        padding: 8px 11px;
+        font-size: 0.86rem;
+        border-radius: 9px;
+    }
+    select.form-field {
+        height: 38px;
+        background-size: 13px 13px;
+    }
+    textarea.form-field {
+        min-height: 55px;
+    }
+    .img-upload-grid {
+        padding: 8px;
+        gap: 6px;
+    }
+    .img-upload-label {
+        padding: 6px 11px;
+        font-size: 0.78rem;
+    }
+    .form-divider {
+        margin: 10px 0;
+    }
+    .btn-submit-post {
+        padding: 10px;
+        font-size: 0.9rem;
+        border-radius: 11px;
+    }
 }
 
 /* Autocomplete Dropdown Styling */
@@ -106,10 +348,10 @@ textarea.form-field { resize: vertical; }
     top: 100%;
     left: 0;
     right: 0;
-    background: white;
+    background: #ffffff;
     border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    box-shadow: 0 10px 20px -3px rgba(0, 0, 0, 0.12);
     z-index: 50;
     max-height: 200px;
     overflow-y: auto;
@@ -118,18 +360,16 @@ textarea.form-field { resize: vertical; }
 .autocomplete-item {
     padding: 10px 14px;
     cursor: pointer;
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     color: #1e293b;
     transition: background 0.1s ease;
     border-bottom: 1px solid #f1f5f9;
 }
-.autocomplete-item:last-child {
-    border-bottom: none;
-}
+.autocomplete-item:last-child { border-bottom: none; }
 .autocomplete-item:hover {
     background: #fee2e2;
     color: #e11d48;
-    font-weight: 600;
+    font-weight: 700;
 }
 .autocomplete-no-result {
     padding: 10px 14px;
@@ -138,11 +378,35 @@ textarea.form-field { resize: vertical; }
     text-align: center;
 }
 
-/* Dark Mode styles for autocomplete */
+/* Dark Mode Support */
+.dark-mode .post-modal-card {
+    background: #1e293b;
+    border-color: #334155;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
+}
+.dark-mode .field-label { color: #f8fafc; }
+.dark-mode .form-field {
+    background: #0f172a;
+    border-color: #475569;
+    color: #f8fafc;
+}
+.dark-mode .form-field:focus {
+    background: #16202e;
+    border-color: #e11d48;
+}
+.dark-mode .img-upload-grid {
+    background: #0f172a;
+    border-color: #334155;
+}
+.dark-mode .img-upload-label {
+    background: #1e293b;
+    border-color: #334155;
+    color: #cbd5e1;
+}
+.dark-mode .form-divider { border-top-color: #334155; }
 .dark-mode .autocomplete-dropdown {
     background: #1e293b;
     border-color: #475569;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
 }
 .dark-mode .autocomplete-item {
     color: #f8fafc;
@@ -150,28 +414,32 @@ textarea.form-field { resize: vertical; }
 }
 .dark-mode .autocomplete-item:hover {
     background: #be123c;
-    color: white;
-}
-.dark-mode .autocomplete-no-result {
-    color: #94a3b8;
+    color: #ffffff;
 }
 </style>
 
-<div class="admin-action-zone">
-    <button type="button" class="btn-toggle-form" onclick="togglePostForm()">
-        <i class="fa-solid fa-circle-plus" id="toggleIcon"></i>
-        <span id="toggleText">แจ้งเรื่องรถอ้อยสกปรกเพิ่ม</span>
-    </button>
+<!-- 🔴 Floating Action Button (FAB) สำหรับสร้างโพสต์ใหม่ -->
+<button type="button" class="fab-post-btn" id="fabPostBtn" onclick="openPostModal()" title="สร้างโพสต์ / แจ้งเหตุใหม่" aria-label="สร้างโพสต์ใหม่">
+    <i class="fa-solid fa-plus"></i>
+</button>
 
-    <div class="admin-post-card" id="adminPostForm">
+<!-- 🪟 Modal Popup ฟอร์มสร้างโพสต์ใหม่ -->
+<div class="post-modal-overlay" id="postModalOverlay" onclick="closePostModal(event)">
+    <div class="post-modal-card" onclick="event.stopPropagation()">
 
         <!-- Header -->
-        <div class="form-card-header">
-            <i class="fa-solid fa-file-pen"></i>
-            <span>รายละเอียดข้อมูลการแจ้งเหตุ</span>
+        <div class="post-modal-header">
+            <div class="header-title">
+                <i class="fa-solid fa-file-pen"></i>
+                <span>แจ้งเรื่องรถอ้อยสกปรก</span>
+            </div>
+            <button type="button" class="btn-close-modal" onclick="closePostModal()" title="ปิดหน้าต่าง">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
         </div>
 
-        <div class="form-card-body">
+        <!-- Body Form -->
+        <div class="post-modal-body">
             <form id="uploadForm" enctype="multipart/form-data">
 
                 <!-- หน่วย -->
@@ -189,41 +457,43 @@ textarea.form-field { resize: vertical; }
                     </select>
                 </div>
 
-                <!-- ทะเบียน + เลขรถตัด -->
+                <!-- ทะเบียนรถ & เบอร์รถตัด (Grid 2 คอลัมน์) -->
                 <div class="form-grid-2x">
                     <div>
                         <label class="field-label">
-                            ทะเบียนรถบรรทุกอ้อย <span class="req">*</span>
+                            ทะเบียนรถบรรทุก <span class="req">*</span>
                         </label>
                         <input type="text" name="truck_number"
-                               placeholder="เช่น 12-3456" class="form-field" required>
+                               placeholder="เช่น 80-1234 นว."
+                               class="form-field" required>
                     </div>
                     <div style="position: relative;">
                         <label class="field-label">
-                            เลขรถตัด <span class="req">*</span>
+                            เบอร์รถตัด <span class="req">*</span> <span class="hint">(พิมพ์ค้นหาหรือเลือก)</span>
                         </label>
-                        <input type="text" id="harvester_search"
-                               placeholder="พิมพ์ค้นหา เช่น 71..." class="form-field" autocomplete="off" required>
+                        <input type="text" id="harvester_search" placeholder="พิมพ์ค้นหา เช่น 71..." class="form-field" autocomplete="off" required>
                         <input type="hidden" name="harvester_number" id="harvester_number" data-valid="false" required>
-                        
-                        <!-- Dropdown container -->
                         <div id="harvester_dropdown" class="autocomplete-dropdown" style="display: none;"></div>
                     </div>
                 </div>
 
-                <!-- ปัญหาที่พบ -->
-                <div>
-                    <label class="field-label">
-                        ปัญหาที่พบ <span class="req">*</span>
-                        <span class="hint">(เลือกได้สูงสุด 3 รายการ)</span>
-                    </label>
-                    <div class="prob-selects-stack" id="prob-selects-wrap">
+                <!-- ประเภทปัญหา (1, 2, 3) -->
+                <div class="prob-selects-stack">
+                    <div>
+                        <label class="field-label">
+                            ปัญหาที่พบ <span class="req">*</span>
+                            <span class="hint">(เลือกได้สูงสุด 3 รายการ)</span>
+                        </label>
                         <select name="problem_1" class="form-field prob-sel" required>
                             <option value="">-- ปัญหาที่ 1 (บังคับ) --</option>
                         </select>
+                    </div>
+                    <div>
                         <select name="problem_2" class="form-field prob-sel">
                             <option value="">-- ปัญหาที่ 2 (ถ้ามี) --</option>
                         </select>
+                    </div>
+                    <div>
                         <select name="problem_3" class="form-field prob-sel">
                             <option value="">-- ปัญหาที่ 3 (ถ้ามี) --</option>
                         </select>
@@ -238,9 +508,7 @@ textarea.form-field { resize: vertical; }
                         รายละเอียดข้อความเพิ่มเติม
                         <span class="hint">(ถ้ามี)</span>
                     </label>
-                    <textarea name="post_text" rows="3"
-                              placeholder="ระบุรายละเอียดเพิ่มเติม..."
-                              class="form-field"></textarea>
+                    <textarea name="post_text" rows="3" placeholder="ระบุรายละเอียดเพิ่มเติม..." class="form-field"></textarea>
                 </div>
 
                 <!-- แนบรูป -->

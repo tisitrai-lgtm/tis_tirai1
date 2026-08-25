@@ -7,11 +7,9 @@ require_once 'config.php';
 session_start();
 header('Content-Type: application/json; charset=utf-8');
 
-// ── ตรวจสิทธิ์: เฉพาะ Admin ออฟฟิศกลาง ──
-if (!isset($_SESSION['emp_id'])
-    || $_SESSION['emp_level'] !== 'a'
-    || $_SESSION['emp_unit']  !== 'ประจำออฟฟิตกลาง') {
-    echo json_encode(['status' => 'error', 'message' => 'ไม่มีสิทธิ์สร้างโพสต์']);
+// ── ตรวจสิทธิ์: เฉพาะ Admin (ระดับ 'a') ──
+if (!isset($_SESSION['emp_id']) || $_SESSION['emp_level'] !== 'a') {
+    echo json_encode(['status' => 'error', 'message' => 'ไม่มีสิทธิ์สร้างโพสต์ (เฉพาะผู้ดูแลระบบ)']);
     exit;
 }
 
@@ -51,7 +49,7 @@ function saveBase64Image(string $b64, string $prefix = ''): string {
     $data = base64_decode($b64);
     if (!$data) return '';
 
-    $dir = 'uploads/' . date('Y-m-d') . '/';
+    $dir = 'uploads/' . date('Y/m/d') . '/';
     if (!is_dir($dir)) {
         mkdir($dir, 0755, true);
     }

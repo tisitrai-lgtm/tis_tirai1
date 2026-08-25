@@ -29,7 +29,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (isset($mime_to_ext[$real_mime])) {
             $ext        = $mime_to_ext[$real_mime];
             $new_filename = "reply_".time()."_".uniqid().".".$ext;
-            $upload_dir = "uploads/".date('Y-m-d')."/";
+            $upload_dir = "uploads/".date('Y/m/d')."/";
             if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
             if (move_uploaded_file($_FILES['reply_image']['tmp_name'], $upload_dir.$new_filename)) {
                 $reply_image_path = $upload_dir.$new_filename;

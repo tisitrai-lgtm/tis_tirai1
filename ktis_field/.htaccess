@@ -1,0 +1,18 @@
+# TIS SMART FIELD — Hide .php extension in URL
+Options +FollowSymLinks -MultiViews
+RewriteEngine On
+RewriteBase /givewater/ktis_field/
+
+# 1. ถ้ามี .php ใน URL (GET Request) ให้ Redirect 301 ไปยัง URL สะอาดที่ไม่มี .php ทันที
+RewriteCond %{REQUEST_METHOD} !POST
+RewriteCond %{THE_REQUEST} ^[A-Z]{3,}\s/givewater/ktis_field/([^\s\?]+)\.php [NC]
+RewriteRule ^ %1 [R=301,L,QSA]
+
+# 2. ข้ามไฟล์และโฟลเดอร์ที่มีอยู่จริง (เช่น รูปภาพ, css, js)
+RewriteCond %{REQUEST_FILENAME} -d [OR]
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# 3. ถ้าเข้า URL แบบไม่มี .php แล้วมีไฟล์ .php อยู่จริง ให้ Rewrite ภายในไปยังไฟล์ .php
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(.*)$ $1.php [L,QSA]

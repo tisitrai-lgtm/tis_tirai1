@@ -17,22 +17,30 @@ if(isset($_SESSION['flash_msg'])){
     unset($_SESSION['flash_msg'], $_SESSION['flash_status']);
 }
 
-// ── บีบอัดรูป 800px / 75% ──
+// ── บีบอัดรูป 800px / 75% (รองรับทั้ง direct, _cam, _gal) ──
 function uploadImage(string $field_name, string $base_dir): ?string {
-    if (empty($_FILES[$field_name]['name'])) return null;
-    $file    = $_FILES[$field_name];
+    $file = null;
+    if (!empty($_FILES[$field_name]['name']) && ($_FILES[$field_name]['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $file = $_FILES[$field_name];
+    } elseif (!empty($_FILES[$field_name . '_cam']['name']) && ($_FILES[$field_name . '_cam']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $file = $_FILES[$field_name . '_cam'];
+    } elseif (!empty($_FILES[$field_name . '_gal']['name']) && ($_FILES[$field_name . '_gal']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $file = $_FILES[$field_name . '_gal'];
+    }
+    if (!$file) return null;
+
     $allowed = ['image/jpeg','image/jpg','image/png','image/webp'];
     if (!in_array($file['type'], $allowed)) return null;
     if ($file['size'] > 10*1024*1024) return null;
 
-    $date_folder = date('Y-m-d');
+    $date_folder = date('Y/m/d');
     $dir = rtrim($base_dir,'/').'/im_user_check/'.$date_folder.'/';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
     $src = match($file['type']){
-        'image/png'  => imagecreatefrompng($file['tmp_name']),
-        'image/webp' => imagecreatefromwebp($file['tmp_name']),
-        default      => imagecreatefromjpeg($file['tmp_name']),
+        'image/png'  => @imagecreatefrompng($file['tmp_name']),
+        'image/webp' => @imagecreatefromwebp($file['tmp_name']),
+        default      => @imagecreatefromjpeg($file['tmp_name']),
     };
     if(!$src) return null;
 
@@ -50,16 +58,22 @@ function uploadImage(string $field_name, string $base_dir): ?string {
     return $ok ? 'im_user_check/'.$date_folder.'/'.$fname : null;
 }
 
-// ── STEP 1: บันทึกเบอร์รถตัดลง session ──
+// ── เคลียร์ session รถตัด หากเข้าหน้า harvester.php ผ่าน GET ปกติ (ไม่ค้างรถเดิมข้ามหน้า) ──
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && (!isset($_GET['step']) || $_GET['step'] != '2')) {
+    unset($_SESSION['hv_truck_number']);
+}
+
+// ── STEP 1: บันทึกเบอร์รถตัดลง session แล้วไป step 2 ──
 if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action'] ?? '')==='set_truck'){
     $hv = trim($_POST['harvester_number'] ?? '');
     if(empty($hv)){
         $_SESSION['flash_status']='error';
-        $_SESSION['flash_msg']='กรุณาระบุเบอร์รถตัดอ้อยก่อนเริ่มตรวจ';
+        $_SESSION['flash_msg']='กรุณาเลือกรถตัดอ้อยก่อนเริ่มตรวจ';
+        header("Location: harvester.php"); exit;
     } else {
         $_SESSION['hv_truck_number'] = $hv;
+        header("Location: harvester.php?step=2"); exit;
     }
-    header("Location: harvester.php"); exit;
 }
 
 // ── เปลี่ยนเบอร์รถ (กลับไป step 1) ──
@@ -73,7 +87,7 @@ if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action'] ?? '')==='submit_che
     $harvester_number    = $_SESSION['hv_truck_number'] ?? '';
     $field_condition     = trim($_POST['field_condition']     ?? '');
     $field_condition_etc = trim($_POST['field_condition_etc'] ?? '');
-    $crop_year = $_SESSION['crop_year'];
+    $crop_year           = $_SESSION['crop_year'] ?? '';
 
     if(empty($harvester_number)){
         $_SESSION['flash_status']='error';
@@ -83,50 +97,92 @@ if($_SERVER['REQUEST_METHOD']==='POST' && ($_POST['action'] ?? '')==='submit_che
     if(empty($field_condition)){
         $status='error'; $message='กรุณาเลือกสภาพแปลงอ้อย';
     } else {
-        try {
-            $base_dir      = __DIR__;
-            $img_harvester = uploadImage('img_harvester', $base_dir);
-            $img_field     = uploadImage('img_field',     $base_dir);
-
-            $stmt = $conn->prepare(
-                "INSERT INTO check_sessions
-                    (emp_id, harvester_number, crop_year,
-                     field_condition, field_condition_etc,
-                     img_harvester, img_field, checked_at)
-                 VALUES
-                    (:emp_id, :hn, :cy, :fc, :fce, :imh, :imf, NOW())"
-            );
-            $stmt->execute([
-                ':emp_id'=>$_SESSION['emp_id'], ':hn'=>$harvester_number, ':cy'=>$crop_year,
-                ':fc'=>$field_condition, ':fce'=>$field_condition_etc?:null,
-                ':imh'=>$img_harvester, ':imf'=>$img_field,
-            ]);
-            $session_id = $conn->lastInsertId();
-
-            $cut_items_all = $conn->query("SELECT item_id FROM check_items_cut ORDER BY section_no ASC, item_id ASC")->fetchAll();
-            $stmt_r = $conn->prepare(
-                "INSERT INTO check_results (session_id, item_id, pass, note) VALUES (:sid,:iid,:pass,:note)"
-            );
-            foreach($cut_items_all as $ci){
-                $iid  = $ci['item_id'];
-                $pass = isset($_POST["item_$iid"]) ? (int)$_POST["item_$iid"] : 1;
-                $note = (!$pass) ? trim($_POST["note_item_$iid"] ?? '') : '';
-                $stmt_r->execute([':sid'=>$session_id, ':iid'=>$iid, ':pass'=>$pass, ':note'=>$note?:null]);
+        // ตรวจสอบว่าถ้ามีข้อไหนไม่ผ่าน ต้องระบุสาเหตุ
+        $cut_items_all = $conn->query("SELECT item_id, item_name_cut FROM check_items_cut ORDER BY section_no ASC, item_id ASC")->fetchAll();
+        $missing_note_item = null;
+        foreach($cut_items_all as $ci){
+            $iid  = $ci['item_id'];
+            $pass = isset($_POST["item_$iid"]) ? (int)$_POST["item_$iid"] : 1;
+            $note = trim($_POST["note_item_$iid"] ?? '');
+            if($pass === 0 && empty($note)){
+                $missing_note_item = $ci['item_name_cut'];
+                break;
             }
+        }
 
-            unset($_SESSION['hv_truck_number']);
-            $_SESSION['flash_status']='success';
-            $_SESSION['flash_msg']="บันทึกผลตรวจรถตัดเบอร์ <strong>".htmlspecialchars($harvester_number)."</strong> เรียบร้อยแล้ว";
-            header("Location: harvester.php"); exit;
+        if($missing_note_item !== null){
+            $status='error'; 
+            $message='กรุณาระบุสาเหตุที่ต้องแก้ไขสำหรับรายการ: "'.htmlspecialchars($missing_note_item).'" ก่อนบันทึกข้อมูล';
+        } else {
+            try {
+                $base_dir      = __DIR__;
+                $img_harvester = uploadImage('img_harvester', $base_dir);
+                $img_field     = uploadImage('img_field',     $base_dir);
 
-        } catch(Exception $e){
-            $status='error'; $message='เกิดข้อผิดพลาด: '.$e->getMessage();
+                $latitude      = !empty($_POST['latitude']) ? floatval($_POST['latitude']) : null;
+                $longitude     = !empty($_POST['longitude']) ? floatval($_POST['longitude']) : null;
+                $location_name = trim($_POST['location_name'] ?? '');
+
+                $stmt = $conn->prepare(
+                    "INSERT INTO check_sessions
+                        (emp_id, harvester_number, crop_year,
+                         field_condition, field_condition_etc,
+                         latitude, longitude, location_name,
+                         img_harvester, img_field, checked_at)
+                     VALUES
+                        (:emp_id, :hn, :cy, :fc, :fce, :lat, :lng, :loc, :imh, :imf, NOW())"
+                );
+                $stmt->execute([
+                    ':emp_id'=>$_SESSION['emp_id'], ':hn'=>$harvester_number, ':cy'=>$crop_year,
+                    ':fc'=>$field_condition, ':fce'=>$field_condition_etc?:null,
+                    ':lat'=>$latitude, ':lng'=>$longitude, ':loc'=>$location_name?:null,
+                    ':imh'=>$img_harvester, ':imf'=>$img_field,
+                ]);
+                $session_id = $conn->lastInsertId();
+
+                $stmt_r = $conn->prepare(
+                    "INSERT INTO check_results (session_id, item_id, pass, note) VALUES (:sid,:iid,:pass,:note)"
+                );
+                foreach($cut_items_all as $ci){
+                    $iid  = $ci['item_id'];
+                    $pass = isset($_POST["item_$iid"]) ? (int)$_POST["item_$iid"] : 1;
+                    $note = (!$pass) ? trim($_POST["note_item_$iid"] ?? '') : '';
+                    $stmt_r->execute([':sid'=>$session_id, ':iid'=>$iid, ':pass'=>$pass, ':note'=>$note?:null]);
+                }
+
+                unset($_SESSION['hv_truck_number']);
+                $_SESSION['flash_status']='success';
+                $_SESSION['flash_msg']="บันทึกผลตรวจรถตัดเบอร์ <strong>".htmlspecialchars($harvester_number)."</strong> เรียบร้อยแล้ว";
+                header("Location: harvester.php"); exit;
+
+            } catch(Exception $e){
+                $status='error'; $message='เกิดข้อผิดพลาด: '.$e->getMessage();
+            }
         }
     }
 }
 
-$show_step = (!empty($_SESSION['hv_truck_number'])) ? 2 : 1;
+$show_step = (!empty($_SESSION['hv_truck_number']) && (isset($_GET['step']) && $_GET['step'] == '2')) ? 2 : 1;
 $current_truck = $_SESSION['hv_truck_number'] ?? '';
+
+// ── ดึงเฉพาะรายการรถตัดที่อยู่ในความรับผิดชอบของพนักงานที่ล็อกอินอยู่ ──
+$my_harvesters = [];
+try {
+    $stmt_my = $conn->prepare("
+        SELECT DISTINCT h.harvester_id, h.harvester_number, h.harvester_name 
+        FROM employee_harvester eh 
+        JOIN harvesters h ON eh.harvester_id = h.harvester_id 
+        LEFT JOIN employee e ON (eh.emp_id = e.emp_id OR eh.emp_id = e.ID)
+        WHERE (e.emp_id = :emp1 OR e.ID = :emp2 OR eh.emp_id = :emp3) AND h.is_active = 1 
+        ORDER BY h.harvester_id ASC
+    ");
+    $stmt_my->execute([
+        ':emp1' => $_SESSION['emp_id'],
+        ':emp2' => $_SESSION['emp_id'],
+        ':emp3' => $_SESSION['emp_id'],
+    ]);
+    $my_harvesters = $stmt_my->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {}
 
 // ── ดึงรายการสภาพแปลง ──
 $field_items = [];
@@ -143,7 +199,7 @@ $section_icons = [
     5=>'fa-scissors', 6=>'fa-fan', 7=>'fa-wind', 8=>'fa-broom',
 ];
 
-// ── ดึงประวัติ 20 รายการล่าสุด ──
+// ── ดึงประวัติเฉพาะของ "ผู้ใช้ที่ล็อกอินอยู่" (20 รายการล่าสุด) ──
 $history = [];
 try {
     $stmt_h = $conn->prepare(
@@ -153,11 +209,11 @@ try {
          FROM check_sessions cs
          JOIN employee e ON cs.emp_id=e.emp_id
          LEFT JOIN check_results cr ON cs.session_id=cr.session_id
-         WHERE cs.crop_year=:cy
+         WHERE cs.crop_year=:cy AND cs.emp_id=:emp_id
          GROUP BY cs.session_id
          ORDER BY cs.checked_at DESC LIMIT 20"
     );
-    $stmt_h->execute([':cy'=>$_SESSION['crop_year']]);
+    $stmt_h->execute([':cy'=>$_SESSION['crop_year'], ':emp_id'=>$_SESSION['emp_id']]);
     $history = $stmt_h->fetchAll();
 
     $stmt_fail = $conn->prepare(
@@ -180,234 +236,502 @@ $thai_date_now = $now_d.' '.$thai_months[$now_m].' '.$now_y;
 
 include 'includes/nav_u_header.php';
 ?>
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ตรวจเช็กรถตัดอ้อย - KTIS SMART FIELD</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <!-- SweetAlert2 สำหรับ popup แจ้งเตือน -->
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
-*{box-sizing:border-box;}
-body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
-.content-wrapper{flex:1 0 auto;}
-.page-wrap{max-width:760px;margin:24px auto;padding:0 14px 60px;}
-
-.page-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
-.page-header-icon{width:46px;height:46px;background:linear-gradient(135deg,#10b981,#059669);border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.page-header-icon i{color:#fff;font-size:1.3rem;}
-.page-header-title{font-size:1.15rem;font-weight:700;color:#1e293b;margin-bottom:2px;}
-.page-header-sub{font-size:.8rem;color:#64748b;}
-
-.alert{display:flex;align-items:flex-start;gap:10px;padding:13px 16px;border-radius:9px;margin-bottom:18px;font-weight:600;font-size:.9rem;}
-.alert-success{background:#d1fae5;border:1px solid #a7f3d0;color:#065f46;}
-.alert-error{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;}
-.alert i{margin-top:2px;flex-shrink:0;}
-
-.step1-card{background:#fff;border-radius:16px;border:.5px solid #e2e8f0;padding:32px 24px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,.05);}
-.step1-icon{width:64px;height:64px;background:linear-gradient(135deg,#10b981,#059669);border-radius:16px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
-.step1-icon i{color:#fff;font-size:1.7rem;}
-.step1-title{font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:6px;}
-.step1-sub{font-size:.85rem;color:#64748b;margin-bottom:24px;}
-.step1-input{width:100%;padding:14px 16px;border:2px solid #e2e8f0;border-radius:10px;font-size:1.2rem;font-weight:700;text-align:center;font-family:'Sarabun',sans-serif;color:#1e293b;outline:none;transition:border-color .15s;letter-spacing:.05em;}
-.step1-input:focus{border-color:#10b981;}
-.step1-btn{width:100%;margin-top:16px;padding:14px;background:#10b981;color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s;}
-.step1-btn:hover{background:#059669;}
-
-.truck-badge-bar{display:flex;align-items:center;justify-content:space-between;background:#1e293b;border-radius:12px;padding:14px 18px;margin-bottom:18px;color:#fff;flex-wrap:wrap;gap:10px;}
-.truck-badge-l{display:flex;align-items:center;gap:12px;}
-.truck-badge-icon{width:42px;height:42px;background:rgba(16,185,129,.2);border-radius:10px;display:flex;align-items:center;justify-content:center;}
-.truck-badge-icon i{color:#10b981;font-size:1.1rem;}
-.truck-badge-label{font-size:.72rem;color:#94a3b8;}
-.truck-badge-num{font-size:1.15rem;font-weight:700;font-family:monospace;letter-spacing:.05em;}
-.truck-badge-change{color:#fda4af;text-decoration:none;font-size:.8rem;font-weight:700;display:flex;align-items:center;gap:5px;padding:6px 12px;border:1px solid rgba(253,164,175,.3);border-radius:7px;transition:background .15s;}
-.truck-badge-change:hover{background:rgba(225,29,72,.15);}
-
-.form-card{background:#fff;border-radius:14px;border:.5px solid #e2e8f0;overflow:hidden;margin-bottom:28px;}
-.form-card-header{background:#1e293b;padding:14px 20px;display:flex;align-items:center;gap:10px;border-bottom:3px solid #10b981;}
-.form-card-header i{color:#10b981;font-size:1rem;}
-.form-card-header span{color:#f8fafc;font-weight:700;font-size:.95rem;}
-.form-card-body{padding:20px;}
-
-.meta-bar{display:flex;gap:10px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:9px;padding:11px 14px;margin-bottom:20px;}
-.meta-chip{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;font-weight:600;color:#475569;}
-.meta-chip i{color:#94a3b8;font-size:.85rem;}
-.meta-sep{color:#e2e8f0;}
-
-.field-label{display:block;font-weight:700;font-size:.83rem;color:#374151;margin-bottom:7px;}
-.field-label .req{color:#e11d48;}
-.form-input{width:100%;padding:11px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.95rem;font-family:'Sarabun',sans-serif;background:#f8fafc;color:#1e293b;outline:none;transition:border-color .15s;}
-.form-input:focus{border-color:#10b981;background:#fff;}
-select.form-input{cursor:pointer;}
-.field-etc-wrap{margin-top:10px;display:none;}
-.field-etc-wrap.show{display:block;}
-
-.cut-section{margin-top:22px;}
-.cut-section-hd{display:flex;align-items:center;gap:9px;background:#f0fdf4;border-radius:9px;padding:9px 14px;margin-bottom:10px;}
-.cut-section-hd .sec-icon{width:30px;height:30px;background:#10b981;border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.cut-section-hd .sec-icon i{color:#fff;font-size:.8rem;}
-.cut-section-hd .sec-title{font-weight:700;font-size:.88rem;color:#065f46;}
-
-.check-row{padding:11px 4px;border-bottom:1px solid #f8fafc;}
-.check-row:last-of-type{border-bottom:none;}
-.check-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
-.check-row-label{flex:1;min-width:160px;font-weight:600;color:#334155;font-size:.9rem;}
-.radio-group{display:flex;gap:8px;}
-.radio-btn{display:none;}
-.radio-label{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;border-radius:7px;cursor:pointer;font-weight:700;font-size:.8rem;border:1.5px solid #e2e8f0;transition:all .15s;white-space:nowrap;}
-.radio-btn[value="1"]:checked + .radio-label{background:#10b981;color:#fff;border-color:#10b981;}
-.radio-btn[value="0"]:checked + .radio-label{background:#e11d48;color:#fff;border-color:#e11d48;}
-.radio-label.ok{color:#059669;background:#f0fdf4;}
-.radio-label.bad{color:#e11d48;background:#fef2f2;}
-
-.note-wrap{display:none;margin-top:8px;}
-.note-wrap.show{display:block;}
-.note-input{width:100%;padding:8px 11px;border:1.5px solid #fecaca;border-radius:7px;font-size:.85rem;font-family:'Sarabun',sans-serif;background:#fff5f5;color:#1e293b;outline:none;resize:vertical;min-height:56px;transition:border-color .15s;}
-.note-input:focus{border-color:#e11d48;background:#fff;}
-.note-label{font-size:.78rem;color:#e11d48;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:5px;}
-
-.section-label{font-weight:700;font-size:.85rem;color:#1e293b;display:flex;align-items:center;gap:7px;margin:22px 0 10px;padding-bottom:8px;border-bottom:1px solid #f1f5f9;}
-.section-label i{color:#10b981;}
-.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-.upload-box{border:2px dashed #e2e8f0;border-radius:10px;padding:16px 12px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;background:#f8fafc;position:relative;}
-.upload-box:hover{border-color:#10b981;background:#f0fdf4;}
-.upload-box input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
-.upload-box .up-icon{font-size:1.6rem;color:#94a3b8;margin-bottom:6px;}
-.upload-box .up-title{font-weight:700;font-size:.82rem;color:#334155;margin-bottom:2px;}
-.upload-box .up-hint{font-size:.72rem;color:#94a3b8;}
-.upload-box.has-file{border-color:#10b981;background:#f0fdf4;}
-.upload-box.has-file .up-icon{color:#10b981;}
-.upload-box.has-file .up-hint{color:#059669;font-weight:600;}
-.up-preview{display:none;margin-top:8px;}
-.up-preview img{width:100%;max-height:100px;object-fit:cover;border-radius:6px;border:1px solid #a7f3d0;}
-.upload-box.has-file .up-preview{display:block;}
-
-.btn-submit{width:100%;padding:13px;background:#10b981;color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;margin-top:22px;display:flex;align-items:center;justify-content:center;gap:7px;transition:background .15s;}
-.btn-submit:hover{background:#059669;}
-
-.history-card{background:#fff;border-radius:14px;border:.5px solid #e2e8f0;overflow:hidden;}
-.history-header{background:#1e293b;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #64748b;}
-.history-header-left{display:flex;align-items:center;gap:8px;}
-.history-header-left i{color:#94a3b8;}
-.history-header-left span{color:#f8fafc;font-weight:700;font-size:.92rem;}
-.history-count{background:rgba(255,255,255,.1);color:#cbd5e1;font-size:.75rem;font-weight:700;padding:2px 9px;border-radius:10px;}
-
-.hist-tbl-wrap{max-height:295px;overflow-y:auto;overflow-x:auto;-webkit-overflow-scrolling:touch;}
-.hist-tbl-wrap::-webkit-scrollbar{width:5px;height:5px;}
-.hist-tbl-wrap::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:10px;}
-.hist-tbl-wrap::-webkit-scrollbar-track{background:#f8fafc;}
-.hist-tbl{width:100%;border-collapse:collapse;min-width:650px;}
-.hist-tbl thead th{background:#f8fafc;color:#64748b;font-size:.73rem;font-weight:700;padding:8px 12px;text-align:left;border-bottom:2px solid #e2e8f0;white-space:nowrap;position:sticky;top:0;z-index:1;}
-.hist-tbl tbody td{padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:.82rem;color:#334155;vertical-align:middle;}
-.hist-tbl tbody tr:last-child td{border-bottom:none;}
-.hist-tbl tbody tr:hover{background:#f8fafc;}
-.hist-num{font-weight:700;color:#1e293b;font-family:monospace;font-size:.9rem;}
-.field-badge{display:inline-flex;align-items:center;gap:3px;font-size:.7rem;font-weight:700;padding:2px 7px;border-radius:4px;background:#f0fdf4;color:#065f46;border:1px solid #a7f3d0;}
-.field-badge.bad{background:#fff7ed;color:#92400e;border-color:#fcd34d;}
-.pass-all{background:#d1fae5;color:#065f46;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;}
-.pass-some-fail{background:#fee2e2;color:#991b1b;font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:3px;}
-.fail-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;}
-.fail-tag{background:#fff7ed;border-left:2px solid #f59e0b;border-radius:0 3px 3px 0;padding:1px 5px;font-size:.7rem;color:#92400e;white-space:nowrap;}
-.img-thumbs{display:flex;gap:4px;}
-.img-thumb{width:30px;height:30px;object-fit:cover;border-radius:5px;border:1px solid #e2e8f0;cursor:pointer;transition:transform .15s;}
-.img-thumb:hover{transform:scale(1.15);}
-.empty-hist{text-align:center;padding:36px 20px;color:#94a3b8;}
-.empty-hist i{font-size:2rem;display:block;margin-bottom:8px;}
-
-/* ── ปุ่ม action ──*/
-.btn-action-edit{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#fffbeb;border:1px solid #fcd34d;color:#d97706;text-decoration:none;font-size:.8rem;transition:background .15s;margin-right:4px;}
-.btn-action-edit:hover{background:#fef3c7;}
-.btn-action-del{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;background:#fff1f2;border:1px solid #fecaca;color:#e11d48;text-decoration:none;font-size:.8rem;transition:background .15s;}
-.btn-action-del:hover{background:#fee2e2;}
-/* ── ปุ่มดูเพิ่มเติม ──*/
-.btn-fail-detail{margin-top:4px;display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;color:#92400e;background:#fff7ed;border:1px solid #fcd34d;border-radius:5px;padding:2px 7px;cursor:pointer;font-family:'Sarabun',sans-serif;transition:background .15s;}
-.btn-fail-detail:hover{background:#fef3c7;}
-/* ── Modal รายการไม่ผ่าน ──*/
-.fail-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:8888;align-items:center;justify-content:center;}
-.fail-modal-overlay.show{display:flex;}
-.fail-modal{background:#fff;border-radius:14px;width:90%;max-width:440px;overflow:hidden;box-shadow:0 20px 50px rgba(0,0,0,.2);}
-.fail-modal-hd{background:#1e293b;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:3px solid #e11d48;}
-.fail-modal-hd-l{display:flex;align-items:center;gap:8px;}
-.fail-modal-hd-l i{color:#e11d48;}
-.fail-modal-hd-l span{color:#f8fafc;font-weight:700;font-size:.9rem;}
-.fail-modal-close{color:#94a3b8;background:none;border:none;font-size:1.3rem;cursor:pointer;line-height:1;}
-.fail-modal-body{padding:16px 18px;max-height:360px;overflow-y:auto;}
-.fail-item{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #f1f5f9;align-items:flex-start;}
-.fail-item:last-child{border-bottom:none;}
-.fail-dot{width:8px;height:8px;border-radius:50%;background:#e11d48;flex-shrink:0;margin-top:5px;}
-.fail-item-name{font-weight:700;color:#1e293b;font-size:.85rem;}
-.fail-item-note{font-size:.78rem;color:#64748b;margin-top:2px;}
-
-/* Lightbox styles removed - using global swipe lightbox instead */
-
-@media(max-width:640px){
-    .check-row-top{flex-direction:column;align-items:flex-start;}
-    .radio-group{width:100%;}
-    .radio-label{flex:1;justify-content:center;}
-    .upload-grid{grid-template-columns:1fr;}
+/* ── Global & Typography Reset ── */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+body, input, button, select, textarea, p, span, div, h1, h2, h3, h4, h5, h6, a, label {
+    font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+/* Protect Font Awesome Icons */
+.fa, .fas, .far, .fal, .fad, .fab, .fa-solid, .fa-regular, .fa-brands, [class*="fa-"], [class*="fa-"]::before, [class*="fa-"]::after {
+    font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", "FontAwesome" !important;
 }
 
-/* Autocomplete Dropdown Styling */
+body {
+    background-color: #f8fafc;
+    color: #1e293b;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+}
+.content-wrapper { flex: 1 0 auto; }
+.page-wrap { max-width: 820px; margin: 24px auto; padding: 0 16px 80px; }
+
+/* ── Page Header ── */
+.page-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; flex-wrap: wrap; }
+.page-header-icon {
+    width: 48px; height: 48px;
+    background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+    border-radius: 14px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.25);
+}
+.page-header-icon i { color: #ffffff; font-size: 1.35rem; }
+.page-header-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; line-height: 1.2; }
+.page-header-sub { font-size: 0.84rem; color: #64748b; font-weight: 600; margin-top: 3px; }
+
+/* ── Alerts ── */
+.alert { display: flex; align-items: flex-start; gap: 10px; padding: 14px 18px; border-radius: 14px; margin-bottom: 20px; font-weight: 700; font-size: 0.92rem; }
+.alert-success { background: #dcfce7; border: 1px solid #bbf7d0; color: #15803d; }
+.alert-error { background: #ffe4e6; border: 1px solid #fecdd3; color: #be123c; }
+.alert i { margin-top: 2px; flex-shrink: 0; font-size: 1.05rem; }
+
+/* ── Step 1 Card ── */
+.step1-card {
+    background: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0;
+    padding: 36px 24px; text-align: center;
+    box-shadow: 0 4px 20px -4px rgba(0,0,0,0.05);
+    margin-bottom: 24px;
+}
+.step1-icon {
+    width: 70px; height: 70px;
+    background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+    border-radius: 20px; display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px; box-shadow: 0 6px 20px rgba(225, 29, 72, 0.28);
+}
+.step1-icon i { color: #ffffff; font-size: 1.8rem; }
+.step1-title { font-size: 1.25rem; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
+.step1-sub { font-size: 0.88rem; color: #64748b; font-weight: 600; margin-bottom: 26px; }
+
+.step1-select {
+    width: 100%; padding: 14px 18px;
+    border: 2px solid #e2e8f0; border-radius: 14px;
+    font-size: 1.15rem; font-weight: 700; text-align: left;
+    color: #1e293b; outline: none; background: #f8fafc;
+    transition: all 0.2s ease; cursor: pointer;
+    font-family: 'Sarabun', sans-serif;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23e11d48' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 18px center;
+    padding-right: 48px;
+}
+.step1-select:focus {
+    border-color: #e11d48; background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.12);
+}
+.step1-select optgroup {
+    font-weight: 800;
+    color: #e11d48;
+    background: #f1f5f9;
+    padding: 8px 12px;
+}
+.step1-select option {
+    font-weight: 600;
+    color: #1e293b;
+    background: #ffffff;
+    padding: 10px 14px;
+}
+.step1-btn {
+    width: 100%; margin-top: 18px; padding: 14px;
+    background: linear-gradient(135deg, #e11d48 0%, #be123c 100%);
+    color: #ffffff; border: none; border-radius: 14px;
+    font-size: 1.05rem; font-weight: 800; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 15px rgba(225, 29, 72, 0.3);
+    transition: all 0.2s ease;
+}
+.step1-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(225, 29, 72, 0.4); }
+.step1-btn:active { transform: translateY(0); }
+
+/* ── Truck Badge Bar (Step 2) ── */
+.truck-badge-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border-radius: 16px; padding: 16px 20px; margin-bottom: 20px;
+    color: #ffffff; flex-wrap: wrap; gap: 12px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.15);
+}
+.truck-badge-l { display: flex; align-items: center; gap: 14px; }
+.truck-badge-icon {
+    width: 44px; height: 44px;
+    background: rgba(225, 29, 72, 0.2); border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(225, 29, 72, 0.4);
+}
+.truck-badge-icon i { color: #f43f5e; font-size: 1.2rem; }
+.truck-badge-label { font-size: 0.76rem; color: #94a3b8; font-weight: 600; }
+.truck-badge-num { font-size: 1.25rem; font-weight: 800; letter-spacing: 0.03em; color: #f8fafc; }
+.truck-badge-change {
+    color: #fecdd3; text-decoration: none; font-size: 0.84rem; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border: 1px solid rgba(254, 205, 211, 0.3); border-radius: 10px;
+    background: rgba(225, 29, 72, 0.1); transition: all 0.15s ease;
+}
+.truck-badge-change:hover { background: rgba(225, 29, 72, 0.25); color: #ffffff; }
+
+/* ── Form Card ── */
+.form-card {
+    background: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0;
+    overflow: hidden; margin-bottom: 28px;
+    box-shadow: 0 4px 20px -4px rgba(0,0,0,0.05);
+}
+.form-card-header {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    padding: 16px 22px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 3px solid #e11d48;
+}
+.form-card-header i { color: #e11d48; font-size: 1.1rem; }
+.form-card-header span { color: #f8fafc; font-weight: 800; font-size: 1rem; }
+.form-card-body { padding: 24px; }
+
+/* Meta chips */
+.meta-bar {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    background: #f8fafc; border: 1px solid #e2e8f0;
+    border-radius: 12px; padding: 12px 16px; margin-bottom: 22px;
+}
+.meta-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 700; color: #475569; }
+.meta-chip i { color: #e11d48; font-size: 0.9rem; }
+.meta-sep { color: #cbd5e1; }
+
+.field-label { display: block; font-weight: 700; font-size: 0.88rem; color: #334155; margin-bottom: 8px; }
+.field-label .req { color: #e11d48; }
+
+.form-input {
+    width: 100%; padding: 11px 14px;
+    border: 1.5px solid #e2e8f0; border-radius: 12px;
+    font-size: 0.95rem; font-weight: 600;
+    background: #f8fafc; color: #1e293b; outline: none;
+    transition: all 0.2s ease;
+}
+.form-input:focus {
+    border-color: #e11d48; background: #ffffff;
+    box-shadow: 0 0 0 3.5px rgba(225, 29, 72, 0.12);
+}
+select.form-input {
+    cursor: pointer;
+    height: 48px;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: #f8fafc;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2.5' stroke='%23e11d48'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 18px 18px;
+    padding-right: 42px;
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+select.form-input option {
+    background-color: #ffffff;
+    color: #1e293b;
+    font-weight: 600;
+    padding: 10px;
+}
+
+.field-etc-wrap { margin-top: 10px; display: none; }
+.field-etc-wrap.show { display: block; }
+
+/* Checklist Sections */
+.cut-section { margin-top: 24px; }
+.cut-section-hd {
+    display: flex; align-items: center; gap: 10px;
+    background: #fff1f2; border-radius: 12px;
+    padding: 10px 16px; margin-bottom: 12px;
+    border: 1px solid #ffe4e6;
+}
+.cut-section-hd .sec-icon {
+    width: 32px; height: 32px; background: linear-gradient(135deg, #e11d48, #be123c);
+    border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+}
+.cut-section-hd .sec-icon i { color: #ffffff; font-size: 0.85rem; }
+.cut-section-hd .sec-title { font-weight: 800; font-size: 0.92rem; color: #9f1239; }
+
+.check-row { padding: 14px 6px; border-bottom: 1px solid #f1f5f9; }
+.check-row:last-of-type { border-bottom: none; }
+.check-row-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.check-row-label { flex: 1; min-width: 170px; font-weight: 700; color: #1e293b; font-size: 0.95rem; }
+
+.radio-group { display: flex; gap: 8px; }
+.radio-btn { display: none; }
+.radio-label {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: 999px; cursor: pointer;
+    font-weight: 700; font-size: 0.85rem; border: 1.5px solid #e2e8f0;
+    transition: all 0.2s ease; white-space: nowrap;
+}
+.radio-label.ok { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }
+.radio-label.bad { color: #be123c; background: #fff1f2; border-color: #fecdd3; }
+.radio-btn[value="1"]:checked + .radio-label.ok {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff; border-color: #059669;
+    box-shadow: 0 3px 10px rgba(16, 185, 129, 0.25);
+}
+.radio-btn[value="0"]:checked + .radio-label.bad {
+    background: linear-gradient(135deg, #e11d48, #be123c);
+    color: #ffffff; border-color: #be123c;
+    box-shadow: 0 3px 10px rgba(225, 29, 72, 0.25);
+}
+
+.note-wrap { display: none; margin-top: 10px; animation: slideDownFade 0.25s ease forwards; }
+.note-wrap.show { display: block; }
+.note-input {
+    width: 100%; padding: 10px 14px;
+    border: 1.5px solid #fecaca; border-radius: 10px;
+    font-size: 0.9rem; font-weight: 600;
+    background: #fff5f5; color: #1e293b; outline: none;
+    resize: vertical; min-height: 64px; transition: all 0.2s ease;
+}
+.note-input:focus { border-color: #e11d48; background: #ffffff; box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.12); }
+.note-label { font-size: 0.82rem; color: #be123c; font-weight: 800; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+
+.section-label {
+    font-weight: 800; font-size: 0.95rem; color: #0f172a;
+    display: flex; align-items: center; gap: 8px;
+    margin: 26px 0 12px; padding-bottom: 8px; border-bottom: 1px solid #f1f5f9;
+}
+.section-label i { color: #e11d48; }
+
+/* ── Modern Photo Upload Cards (Dual Choice: Camera / Gallery) ── */
+.upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.upload-card {
+    border: 1.5px solid #e2e8f0; border-radius: 16px;
+    padding: 16px; background: #f8fafc;
+    transition: all 0.2s ease; position: relative;
+}
+.upload-card-header {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 800; font-size: 0.92rem; color: #1e293b;
+    margin-bottom: 12px;
+}
+.upload-card-header i { font-size: 1.1rem; }
+.upload-actions { display: flex; flex-direction: column; gap: 8px; }
+.btn-up-action {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 9px 12px; border-radius: 10px; border: 1.5px solid #e2e8f0;
+    background: #ffffff; color: #334155; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+.btn-up-action:hover {
+    border-color: #e11d48; background: #fee2e2; color: #e11d48;
+    transform: translateY(-1px);
+}
+.btn-up-cam { border-color: #fecdd3; color: #be123c; }
+.btn-up-gal { border-color: #cbd5e1; }
+.hidden-file-input { display: none; }
+
+.up-hint-text { font-size: 0.74rem; color: #94a3b8; font-weight: 600; margin-top: 8px; text-align: center; }
+
+.up-preview { display: none; margin-top: 10px; text-align: center; position: relative; }
+.up-preview img { width: 100%; max-height: 140px; object-fit: cover; border-radius: 10px; border: 1.5px solid #e2e8f0; }
+.btn-remove-img {
+    margin-top: 6px; padding: 4px 10px; border-radius: 6px;
+    border: 1px solid #fecaca; background: #fff1f2; color: #e11d48;
+    font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px;
+}
+.btn-remove-img:hover { background: #fee2e2; }
+
+/* ── Submit Button ── */
+.btn-submit {
+    width: 100%; padding: 14px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff; border: none; border-radius: 14px;
+    font-size: 1.05rem; font-weight: 800; cursor: pointer;
+    margin-top: 26px; display: flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    transition: all 0.2s ease;
+}
+.btn-submit:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4); }
+.btn-submit:active { transform: translateY(0); }
+
+/* ── History Card ── */
+.history-card {
+    background: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0;
+    overflow: hidden; box-shadow: 0 4px 20px -4px rgba(0,0,0,0.05);
+}
+.history-header {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    padding: 15px 22px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 3px solid #64748b; flex-wrap: wrap; gap: 10px;
+}
+.history-header-left { display: flex; align-items: center; gap: 10px; }
+.history-header-left i { color: #94a3b8; font-size: 1.1rem; }
+.history-header-left span { color: #f8fafc; font-weight: 800; font-size: 0.98rem; }
+.history-count {
+    background: rgba(255,255,255,0.12); color: #f1f5f9;
+    font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 999px;
+}
+
+.hist-tbl-wrap { max-height: 380px; overflow-y: auto; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.hist-tbl-wrap::-webkit-scrollbar { width: 5px; height: 5px; }
+.hist-tbl-wrap::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+.hist-tbl-wrap::-webkit-scrollbar-track { background: #f8fafc; }
+
+.hist-tbl { width: 100%; border-collapse: collapse; min-width: 650px; }
+.hist-tbl thead th {
+    background: #f8fafc; color: #64748b; font-size: 0.78rem; font-weight: 800;
+    padding: 10px 14px; text-align: left; border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap; position: sticky; top: 0; z-index: 1;
+}
+.hist-tbl tbody td {
+    padding: 12px 14px; border-bottom: 1px solid #f1f5f9;
+    font-size: 0.86rem; color: #334155; vertical-align: middle;
+}
+.hist-tbl tbody tr:last-child td { border-bottom: none; }
+.hist-tbl tbody tr:hover { background: #f8fafc; }
+.hist-num { font-weight: 800; color: #0f172a; font-size: 0.95rem; }
+
+.field-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.75rem; font-weight: 700; padding: 3px 8px; border-radius: 6px;
+    background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0;
+}
+.field-badge.bad { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+
+.pass-all {
+    background: #dcfce7; color: #15803d; font-size: 0.75rem; font-weight: 800;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 4px;
+}
+.pass-some-fail {
+    background: #ffe4e6; color: #be123c; font-size: 0.75rem; font-weight: 800;
+    padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 4px;
+}
+.btn-fail-detail {
+    margin-top: 4px; display: inline-flex; align-items: center; gap: 4px;
+    font-size: 0.72rem; font-weight: 700; color: #9a3412; background: #fff7ed;
+    border: 1px solid #fed7aa; border-radius: 6px; padding: 3px 8px; cursor: pointer;
+    transition: all 0.15s ease;
+}
+.btn-fail-detail:hover { background: #ffedd5; }
+
+.img-thumbs { display: flex; gap: 5px; }
+.img-thumb { width: 34px; height: 34px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0; cursor: pointer; transition: transform 0.15s ease; }
+.img-thumb:hover { transform: scale(1.15); box-shadow: 0 4px 8px rgba(0,0,0,0.15); }
+
+.btn-action-edit {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px; background: #fffbeb;
+    border: 1px solid #fef08a; color: #b45309; text-decoration: none; font-size: 0.85rem;
+    transition: all 0.15s ease; margin-right: 4px;
+}
+.btn-action-edit:hover { background: #fef9c3; }
+.btn-action-del {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px; background: #fff1f2;
+    border: 1px solid #fecdd3; color: #be123c; text-decoration: none; font-size: 0.85rem;
+    transition: all 0.15s ease;
+}
+.btn-action-del:hover { background: #fee2e2; }
+
+.empty-hist { text-align: center; padding: 48px 20px; color: #94a3b8; }
+.empty-hist i { font-size: 2.2rem; display: block; margin-bottom: 10px; color: #cbd5e1; }
+
+/* ── Modal รายการไม่ผ่าน ── */
+.fail-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 99999; align-items: center; justify-content: center; }
+.fail-modal-overlay.show { display: flex; }
+.fail-modal { background: #ffffff; border-radius: 20px; width: 90%; max-width: 460px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+.fail-modal-hd {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 3px solid #e11d48;
+}
+.fail-modal-hd-l { display: flex; align-items: center; gap: 8px; }
+.fail-modal-hd-l i { color: #e11d48; font-size: 1.1rem; }
+.fail-modal-hd-l span { color: #f8fafc; font-weight: 800; font-size: 0.95rem; }
+.fail-modal-close { color: #94a3b8; background: none; border: none; font-size: 1.3rem; cursor: pointer; line-height: 1; }
+.fail-modal-close:hover { color: #ffffff; }
+.fail-modal-body { padding: 18px 20px; max-height: 380px; overflow-y: auto; }
+.fail-item { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; align-items: flex-start; }
+.fail-item:last-child { border-bottom: none; }
+.fail-dot { width: 8px; height: 8px; border-radius: 50%; background: #e11d48; flex-shrink: 0; margin-top: 6px; }
+.fail-item-name { font-weight: 800; color: #1e293b; font-size: 0.9rem; }
+.fail-item-note { font-size: 0.82rem; color: #64748b; margin-top: 3px; }
+
+/* ── Autocomplete Dropdown ── */
 .autocomplete-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: white;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-    z-index: 999;
-    max-height: 200px;
-    overflow-y: auto;
-    margin-top: 4px;
+    position: absolute; top: 100%; left: 0; right: 0;
+    background: #ffffff; border: 1.5px solid #e2e8f0; border-radius: 12px;
+    box-shadow: 0 10px 25px -3px rgba(0,0,0,0.1); z-index: 999;
+    max-height: 220px; overflow-y: auto; margin-top: 6px;
 }
 .autocomplete-item {
-    padding: 10px 14px;
-    cursor: pointer;
-    font-size: 0.95rem;
-    color: #1e293b;
-    transition: background 0.1s ease;
-    border-bottom: 1px solid #f1f5f9;
+    padding: 11px 16px; cursor: pointer; font-size: 0.95rem; font-weight: 700;
+    color: #1e293b; transition: all 0.1s ease; border-bottom: 1px solid #f1f5f9;
 }
-.autocomplete-item:last-child {
-    border-bottom: none;
-}
-.autocomplete-item:hover {
-    background: #f0fdf4;
-    color: #10b981;
-    font-weight: 600;
-}
-.autocomplete-no-result {
-    padding: 10px 14px;
-    color: #64748b;
-    font-size: 0.9rem;
-    text-align: center;
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover { background: #fee2e2; color: #e11d48; }
+.autocomplete-no-result { padding: 12px 16px; color: #64748b; font-size: 0.9rem; text-align: center; }
+
+/* ── Responsive ── */
+@media(max-width:640px){
+    .check-row-top { flex-direction: column; align-items: flex-start; }
+    .radio-group { width: 100%; }
+    .radio-label { flex: 1; justify-content: center; }
+    .upload-grid { grid-template-columns: 1fr; }
+    .page-wrap { padding: 0 12px 60px; }
 }
 
-/* Dark Mode styles for autocomplete */
-.dark-mode .autocomplete-dropdown {
-    background: #1e293b;
-    border-color: #475569;
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.3);
+/* ── Dark Mode ── */
+.dark-mode body { background-color: #0f172a !important; color: #f8fafc !important; }
+.dark-mode .step1-card,
+.dark-mode .form-card,
+.dark-mode .history-card,
+.dark-mode .fail-modal {
+    background: #1e293b !important; border-color: #334155 !important;
+    color: #f8fafc !important; box-shadow: 0 4px 25px -4px rgba(0,0,0,0.3) !important;
 }
-.dark-mode .autocomplete-item {
-    color: #f8fafc;
-    border-bottom-color: #334155;
+.dark-mode .step1-title,
+.dark-mode .page-header-title,
+.dark-mode .check-row-label,
+.dark-mode .section-label,
+.dark-mode .upload-card-header,
+.dark-mode .hist-num,
+.dark-mode .fail-item-name { color: #f8fafc !important; }
+
+.dark-mode .step1-select,
+.dark-mode .form-input {
+    background-color: #0f172a !important; border-color: #475569 !important; color: #f8fafc !important;
 }
-.dark-mode .autocomplete-item:hover {
-    background: #059669;
-    color: white;
+.dark-mode .step1-select:focus,
+.dark-mode .form-input:focus { background-color: #16202e !important; border-color: #e11d48 !important; }
+.dark-mode .step1-select optgroup {
+    background-color: #1e293b !important; color: #fda4af !important;
 }
-.dark-mode .autocomplete-no-result {
-    color: #94a3b8;
+.dark-mode .step1-select option {
+    background-color: #0f172a !important; color: #f8fafc !important;
 }
+.dark-mode select.form-input {
+    background-color: #0f172a !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2.5' stroke='%23f43f5e'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E") !important;
+}
+.dark-mode select.form-input option {
+    background-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+
+.dark-mode .meta-bar { background: #0f172a !important; border-color: #334155 !important; }
+.dark-mode .meta-chip { color: #cbd5e1 !important; }
+
+.dark-mode .cut-section-hd { background: rgba(225, 29, 72, 0.15) !important; border-color: rgba(225, 29, 72, 0.3) !important; }
+.dark-mode .cut-section-hd .sec-title { color: #fda4af !important; }
+
+.dark-mode .upload-card { background: #0f172a !important; border-color: #334155 !important; }
+.dark-mode .btn-up-action { background: #1e293b !important; border-color: #334155 !important; color: #cbd5e1 !important; }
+.dark-mode .btn-up-action:hover { background: rgba(225, 29, 72, 0.25) !important; border-color: #e11d48 !important; color: #f43f5e !important; }
+
+.dark-mode .note-input { background: rgba(225, 29, 72, 0.12) !important; border-color: #7f1d1d !important; color: #f8fafc !important; }
+.dark-mode .note-input:focus { background: #0f172a !important; border-color: #e11d48 !important; }
+
+.dark-mode .hist-tbl thead th { background: #16202e !important; color: #94a3b8 !important; border-bottom-color: #334155 !important; }
+.dark-mode .hist-tbl tbody tr:hover { background: #16202e !important; }
+.dark-mode .hist-tbl tbody td { border-bottom-color: #263244 !important; color: #e2e8f0 !important; }
+
+.dark-mode .autocomplete-dropdown { background: #1e293b !important; border-color: #475569 !important; }
+.dark-mode .autocomplete-item { color: #f8fafc !important; border-bottom-color: #334155 !important; }
+.dark-mode .autocomplete-item:hover { background: #be123c !important; color: white !important; }
+
+.swal2-popup.sa2-th, .swal2-popup { font-family: 'Sarabun', sans-serif !important; }
 </style>
-</head>
-<body>
 <div class="content-wrapper">
 <div class="page-wrap">
 
@@ -419,7 +743,6 @@ select.form-input{cursor:pointer;}
         </div>
     </div>
 
-    <?php /* alert กล่องเดิมยังเก็บไว้สำหรับ error เท่านั้น ส่วน success ใช้ SweetAlert popup แทน */ ?>
     <?php if(!empty($message) && $status==='error'): ?>
     <div class="alert alert-error">
         <i class="fa-solid fa-circle-exclamation"></i>
@@ -431,36 +754,46 @@ select.form-input{cursor:pointer;}
     <div class="step1-card">
         <div class="step1-icon"><i class="fa-solid fa-tractor"></i></div>
         <div class="step1-title">เริ่มตรวจเช็กรถตัดอ้อย</div>
-        <div class="step1-sub">กรอกเบอร์รถตัดอ้อยที่ต้องการตรวจสอบก่อนเริ่ม</div>
+        <div class="step1-sub">เลือกรถตัดอ้อยที่อยู่ในความรับผิดชอบของคุณ</div>
         <form method="POST" action="harvester.php" id="step1Form">
             <input type="hidden" name="action" value="set_truck">
-            <div style="position: relative; max-width: 400px; margin: 0 auto 16px;">
-                <input type="text" id="harvester_search" class="step1-input"
-                       placeholder="พิมพ์เบอร์รถตัด เช่น 21" required autofocus autocomplete="off">
-                <input type="hidden" name="harvester_number" id="harvester_number" data-valid="false" required>
-                
-                <!-- Dropdown container -->
-                <div id="harvester_dropdown" class="autocomplete-dropdown" style="display: none;"></div>
+            <div style="position: relative; max-width: 440px; margin: 0 auto 18px;">
+                <?php if (!empty($my_harvesters)): ?>
+                    <select name="harvester_number" id="harvester_select" class="step1-select" required autofocus>
+                        <option value="">-- เลือกรถตัดที่คุณรับผิดชอบ --</option>
+                        <?php foreach ($my_harvesters as $mh): ?>
+                            <option value="<?php echo htmlspecialchars($mh['harvester_number']); ?>">
+                                🚜 <?php echo htmlspecialchars($mh['harvester_number']); ?><?php echo !empty($mh['harvester_name']) ? ' (' . htmlspecialchars($mh['harvester_name']) . ')' : ''; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="submit" class="step1-btn">
+                        <i class="fa-solid fa-arrow-right"></i> เริ่มตรวจเช็ก
+                    </button>
+                <?php else: ?>
+                    <div style="background:#fee2e2;border:1.5px solid #fecaca;color:#991b1b;padding:16px;border-radius:14px;font-weight:600;font-size:0.92rem;line-height:1.5;">
+                        <i class="fa-solid fa-triangle-exclamation" style="font-size:1.4rem;display:block;margin-bottom:6px;"></i>
+                        ยังไม่มีรถตัดที่อยู่ในความรับผิดชอบของคุณ<br>
+                        <span style="font-size:0.8rem;color:#b91c1c;font-weight:normal;">กรุณาติดต่อผู้ดูแลระบบ (Admin) เพื่อผูกรถตัดที่รับผิดชอบในระบบ</span>
+                    </div>
+                <?php endif; ?>
             </div>
-            <button type="submit" class="step1-btn">
-                <i class="fa-solid fa-arrow-right"></i> เริ่มตรวจเช็ก
-            </button>
         </form>
     </div>
 
-<!-- ประวัติการบันทึก (แสดงเฉพาะ Step 1) -->
+<!-- ประวัติการบันทึก (เฉพาะของคนที่กำลังล็อกอินบันทึก) -->
 <div class="history-card" style="margin-top:20px;">
     <div class="history-header">
         <div class="history-header-left">
             <i class="fa-solid fa-clock-rotate-left"></i>
-            <span>ประวัติการบันทึก</span>
+            <span>ประวัติการบันทึกของฉัน</span>
         </div>
         <span class="history-count"><?php echo count($history); ?> รายการล่าสุด · ปี <?php echo htmlspecialchars($_SESSION['crop_year']); ?></span>
     </div>
     <?php if(empty($history)): ?>
     <div class="empty-hist">
         <i class="fa-solid fa-clipboard-list"></i>
-        ยังไม่มีประวัติการบันทึกในปีการผลิตนี้
+        ยังไม่มีประวัติการบันทึกของคุณในปีการผลิตนี้
     </div>
     <?php else: ?>
     <div class="hist-tbl-wrap">
@@ -489,12 +822,12 @@ select.form-input{cursor:pointer;}
             ?>
             <tr>
                 <td style="white-space:nowrap;">
-                    <div style="font-weight:700;font-size:.8rem;color:#1e293b;"><?php echo $date_str; ?></div>
-                    <div style="font-size:.72rem;color:#94a3b8;"><?php echo $time_str; ?></div>
+                    <div style="font-weight:800;font-size:0.85rem;color:#1e293b;"><?php echo $date_str; ?></div>
+                    <div style="font-size:0.75rem;color:#94a3b8;font-weight:600;margin-top:2px;"><?php echo $time_str; ?></div>
                 </td>
                 <td>
                     <span class="hist-num">
-                        <i class="fa-solid fa-tractor" style="color:#10b981;margin-right:4px;font-size:.8rem;"></i>
+                        <i class="fa-solid fa-tractor" style="color:#e11d48;margin-right:4px;font-size:0.85rem;"></i>
                         <?php echo htmlspecialchars($h['harvester_number']); ?>
                     </span>
                 </td>
@@ -513,22 +846,21 @@ select.form-input{cursor:pointer;}
                         <span class="pass-some-fail"><i class="fa-solid fa-triangle-exclamation"></i> ไม่ผ่าน <?php echo $total-$pass; ?>/<?php echo $total; ?></span>
                         <?php if(!empty($h['fails'])): ?>
                         <?php
-                            // เตรียม JSON สำหรับ modal
                             $fail_json = json_encode(array_map(fn($f)=>[
                                 'name'=>$f['item_name_cut'],
                                 'note'=>$f['note']??''
                             ], $h['fails']), JSON_UNESCAPED_UNICODE);
                         ?>
                         <button class="btn-fail-detail" onclick='openFailModal(<?php echo htmlspecialchars($fail_json,ENT_QUOTES); ?>, "<?php echo htmlspecialchars($h['harvester_number']); ?>")'>
-                            <i class="fa-solid fa-magnifying-glass"></i> ดูเพิ่มเติม
+                            <i class="fa-solid fa-magnifying-glass"></i> ดูสาเหตุ
                         </button>
                         <?php endif; ?>
                     <?php else: ?><span style="color:#cbd5e1;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <div class="img-thumbs rp-list">
-                        <?php if(!empty($h['img_harvester'])): ?><img class="img-thumb rp-thumb" src="<?php echo htmlspecialchars($h['img_harvester']); ?>" title="รูปรถตัด"><?php endif; ?>
-                        <?php if(!empty($h['img_field'])): ?><img class="img-thumb rp-thumb" src="<?php echo htmlspecialchars($h['img_field']); ?>" title="รูปแปลงอ้อย"><?php endif; ?>
+                        <?php if(!empty($h['img_harvester'])): ?><img class="img-thumb rp-thumb js-lightbox-img" data-gallery='["<?php echo addslashes($h['img_harvester']); ?>"]' data-index="0" src="<?php echo htmlspecialchars($h['img_harvester']); ?>" title="รูปรถตัด"><?php endif; ?>
+                        <?php if(!empty($h['img_field'])): ?><img class="img-thumb rp-thumb js-lightbox-img" data-gallery='["<?php echo addslashes($h['img_field']); ?>"]' data-index="0" src="<?php echo htmlspecialchars($h['img_field']); ?>" title="รูปแปลงอ้อย"><?php endif; ?>
                         <?php if(empty($h['img_harvester']) && empty($h['img_field'])): ?><span style="color:#cbd5e1;">—</span><?php endif; ?>
                     </div>
                 </td>
@@ -565,16 +897,22 @@ select.form-input{cursor:pointer;}
     </div>
 
     <div class="form-card">
-        <div class="form-card-header">
-            <i class="fa-solid fa-clipboard-list"></i>
-            <span>แบบฟอร์มบันทึกผลการตรวจสอบ</span>
+        <div class="form-card-header" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <i class="fa-solid fa-clipboard-list"></i>
+                <span>แบบฟอร์มบันทึกผลการตรวจสอบ</span>
+            </div>
+            <div id="gps-indicator" style="font-size:0.74rem; color:#38bdf8; font-family:monospace; font-weight:700; display:inline-flex; align-items:center; gap:4px; opacity:0; transition:opacity 0.3s ease;" title="พิกัด GPS ที่ตรวจพบ">
+                <i class="fa-solid fa-location-dot" style="font-size:0.7rem;"></i>
+                <span id="gps-live-coords"></span>
+            </div>
         </div>
         <div class="form-card-body">
 
             <div class="meta-bar">
                 <div class="meta-chip"><i class="fa-solid fa-user"></i><span><?php echo htmlspecialchars($_SESSION['emp_name']); ?></span></div>
                 <span class="meta-sep">|</span>
-                <div class="meta-chip"><i class="fa-solid fa-location-dot"></i><span><?php echo htmlspecialchars($_SESSION['emp_unit']); ?></span></div>
+                <div class="meta-chip"><i class="fa-solid fa-location-dot"></i><span>หน่วย<?php echo htmlspecialchars($_SESSION['emp_unit'] ?? ''); ?></span></div>
                 <span class="meta-sep">|</span>
                 <div class="meta-chip"><i class="fa-solid fa-calendar-day"></i><span><?php echo $thai_date_now; ?></span></div>
                 <span class="meta-sep">|</span>
@@ -634,9 +972,12 @@ select.form-input{cursor:pointer;}
                             </div>
                         </div>
                         <div class="note-wrap" id="note_wrap_<?php echo $iid; ?>">
-                            <div class="note-label"><i class="fa-solid fa-triangle-exclamation"></i> ระบุรายละเอียด/สาเหตุที่ต้องแก้ไข</div>
-                            <textarea class="note-input" name="note_item_<?php echo $iid; ?>"
-                                      placeholder="เช่น ใบมีดสึกหรอ, ต้องเปลี่ยนอะไหล่..."></textarea>
+                            <div class="note-label">
+                                <i class="fa-solid fa-triangle-exclamation"></i> 
+                                ระบุสาเหตุที่ต้องแก้ไข <span class="req">* (บังคับกรอก)</span>
+                            </div>
+                            <textarea class="note-input" name="note_item_<?php echo $iid; ?>" id="note_item_<?php echo $iid; ?>"
+                                      placeholder="เช่น ใบมีดสึกหรอมาก, สับไม่ขาด, ต้องเปลี่ยนอะไหล่..."></textarea>
                         </div>
                     </div>
                     <?php endforeach; ?>
@@ -644,29 +985,74 @@ select.form-input{cursor:pointer;}
                 <?php endforeach; ?>
 
                 <div class="section-label"><i class="fa-solid fa-camera"></i> ภาพประกอบ (ไม่บังคับ)</div>
-                <div style="font-size:.75rem;color:#64748b;margin-bottom:10px;">
-                    <i class="fa-solid fa-compress"></i> รูปจะถูกบีบอัดอัตโนมัติ (800px / 75%)
+                <div style="font-size:0.78rem;color:#64748b;margin-bottom:12px;font-weight:600;">
+                    <i class="fa-solid fa-compress"></i> สามารถถ่ายรูปจากกล้องมือถือ หรือเลือกไฟล์รูปภาพจากเครื่องได้ (ระบบบีบอัดให้อัตโนมัติ 800px)
                 </div>
+                
                 <div class="upload-grid">
-                    <div class="upload-box" id="box_harvester">
-                        <input type="file" name="img_harvester" id="img_harvester"
-                               accept="image/jpeg,image/png,image/webp"
-                               onchange="previewImg(this,'box_harvester','prev_harvester')">
-                        <div class="up-icon"><i class="fa-solid fa-tractor"></i></div>
-                        <div class="up-title">รูปรถตัด</div>
-                        <div class="up-hint">JPG / PNG / WEBP ไม่เกิน 10MB</div>
-                        <div class="up-preview" id="prev_harvester"><img src="" alt="preview"></div>
+                    <!-- Harvester Photo -->
+                    <div class="upload-card" id="card_harvester">
+                        <div class="upload-card-header">
+                            <i class="fa-solid fa-tractor" style="color:#e11d48;"></i>
+                            <span>รูปรถตัด</span>
+                        </div>
+                        <div class="upload-actions">
+                            <label class="btn-up-action btn-up-cam" title="เปิดกล้องถ่ายภาพทันที">
+                                <i class="fa-solid fa-camera"></i> ถ่ายรูปจากกล้อง
+                                <input type="file" name="img_harvester_cam" id="img_harvester_cam"
+                                       accept="image/*" capture="environment" class="hidden-file-input"
+                                       onchange="previewImgChoice(this, 'card_harvester', 'prev_harvester', 'hint_harvester', 'img_harvester_gal')">
+                            </label>
+                            <label class="btn-up-action btn-up-gal" title="เลือกรูปจากคลังภาพในมือถือหรือไฟล์ในคอม">
+                                <i class="fa-solid fa-images"></i> เลือกจากคลังรูป / ในคอม
+                                <input type="file" name="img_harvester_gal" id="img_harvester_gal"
+                                       accept="image/*" class="hidden-file-input"
+                                       onchange="previewImgChoice(this, 'card_harvester', 'prev_harvester', 'hint_harvester', 'img_harvester_cam')">
+                            </label>
+                        </div>
+                        <div class="up-hint-text" id="hint_harvester">JPG / PNG / WEBP ไม่เกิน 10MB</div>
+                        <div class="up-preview" id="prev_harvester">
+                            <img src="" alt="preview">
+                            <button type="button" class="btn-remove-img" onclick="removeImgChoice('card_harvester', 'prev_harvester', 'hint_harvester', 'img_harvester_cam', 'img_harvester_gal')" title="ยกเลิกรูปนี้">
+                                <i class="fa-solid fa-xmark"></i> ลบรูป
+                            </button>
+                        </div>
                     </div>
-                    <div class="upload-box" id="box_field">
-                        <input type="file" name="img_field" id="img_field"
-                               accept="image/jpeg,image/png,image/webp"
-                               onchange="previewImg(this,'box_field','prev_field')">
-                        <div class="up-icon"><i class="fa-solid fa-seedling"></i></div>
-                        <div class="up-title">รูปแปลงอ้อย</div>
-                        <div class="up-hint">JPG / PNG / WEBP ไม่เกิน 10MB</div>
-                        <div class="up-preview" id="prev_field"><img src="" alt="preview"></div>
+
+                    <!-- Field Photo -->
+                    <div class="upload-card" id="card_field">
+                        <div class="upload-card-header">
+                            <i class="fa-solid fa-seedling" style="color:#10b981;"></i>
+                            <span>รูปแปลงอ้อย</span>
+                        </div>
+                        <div class="upload-actions">
+                            <label class="btn-up-action btn-up-cam" title="เปิดกล้องถ่ายภาพทันที">
+                                <i class="fa-solid fa-camera"></i> ถ่ายรูปจากกล้อง
+                                <input type="file" name="img_field_cam" id="img_field_cam"
+                                       accept="image/*" capture="environment" class="hidden-file-input"
+                                       onchange="previewImgChoice(this, 'card_field', 'prev_field', 'hint_field', 'img_field_gal')">
+                            </label>
+                            <label class="btn-up-action btn-up-gal" title="เลือกรูปจากคลังภาพในมือถือหรือไฟล์ในคอม">
+                                <i class="fa-solid fa-images"></i> เลือกจากคลังรูป / ในคอม
+                                <input type="file" name="img_field_gal" id="img_field_gal"
+                                       accept="image/*" class="hidden-file-input"
+                                       onchange="previewImgChoice(this, 'card_field', 'prev_field', 'hint_field', 'img_field_cam')">
+                            </label>
+                        </div>
+                        <div class="up-hint-text" id="hint_field">JPG / PNG / WEBP ไม่เกิน 10MB</div>
+                        <div class="up-preview" id="prev_field">
+                            <img src="" alt="preview">
+                            <button type="button" class="btn-remove-img" onclick="removeImgChoice('card_field', 'prev_field', 'hint_field', 'img_field_cam', 'img_field_gal')" title="ยกเลิกรูปนี้">
+                                <i class="fa-solid fa-xmark"></i> ลบรูป
+                            </button>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Hidden GPS Location Inputs (Auto-collected in background) -->
+                <input type="hidden" name="latitude" id="input_latitude">
+                <input type="hidden" name="longitude" id="input_longitude">
+                <input type="hidden" name="location_name" id="input_location_name">
 
                 <button type="submit" class="btn-submit" id="submitBtn">
                     <i class="fa-solid fa-floppy-disk"></i> บันทึกผลการตรวจสอบ
@@ -694,10 +1080,6 @@ select.form-input{cursor:pointer;}
     </div>
 </div>
 
-<!-- Lightbox HTML removed - using global swipe lightbox instead -->
-
-<?php include 'includes/nav_u_footer.php'; ?>
-
 <script>
 function updateTime(){
     const now=new Date();
@@ -718,30 +1100,61 @@ function toggleEtc(val){
 function toggleNote(id,val){
     const wrap=document.getElementById('note_wrap_'+id);
     if(!wrap) return;
-    if(val==0){ wrap.classList.add('show'); }
-    else { wrap.classList.remove('show'); const ta=wrap.querySelector('textarea'); if(ta) ta.value=''; }
+    const ta=wrap.querySelector('textarea');
+    if(val==0){
+        wrap.classList.add('show');
+        if(ta){ ta.required=true; ta.focus(); }
+    } else {
+        wrap.classList.remove('show');
+        if(ta){ ta.required=false; ta.value=''; }
+    }
 }
 
-function previewImg(input,boxId,prevId){
-    const box=document.getElementById(boxId);
-    const prev=document.getElementById(prevId);
+// ── จัดการเลือกรูปถ่าย / คลังภาพ ──
+function previewImgChoice(input, cardId, prevId, hintId, otherInputId){
+    const card = document.getElementById(cardId);
+    const prev = document.getElementById(prevId);
+    const hint = document.getElementById(hintId);
+    const otherInput = document.getElementById(otherInputId);
+
     if(input.files && input.files[0]){
-        const reader=new FileReader();
-        reader.onload=e=>{
-            prev.querySelector('img').src=e.target.result;
-            box.classList.add('has-file');
-            const kb=Math.round(input.files[0].size/1024);
-            box.querySelector('.up-hint').textContent=input.files[0].name+' ('+kb+' KB)';
+        // เคลียร์ input อีกตัวหนึ่งเพื่อไม่ให้ส่งไฟล์ซ้ำ
+        if(otherInput) otherInput.value = '';
+
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = e => {
+            prev.querySelector('img').src = e.target.result;
+            prev.style.display = 'block';
+            const kb = Math.round(file.size / 1024);
+            hint.innerHTML = `<span style="color:#10b981;font-weight:700;"><i class="fa-solid fa-circle-check"></i> ${escHtml(file.name)} (${kb} KB)</span>`;
         };
-        reader.readAsDataURL(input.files[0]);
+        reader.readAsDataURL(file);
+    }
+}
+
+function removeImgChoice(cardId, prevId, hintId, input1Id, input2Id){
+    const prev = document.getElementById(prevId);
+    const hint = document.getElementById(hintId);
+    const input1 = document.getElementById(input1Id);
+    const input2 = document.getElementById(input2Id);
+
+    if(input1) input1.value = '';
+    if(input2) input2.value = '';
+    if(prev) {
+        prev.querySelector('img').src = '';
+        prev.style.display = 'none';
+    }
+    if(hint) {
+        hint.innerHTML = 'JPG / PNG / WEBP ไม่เกิน 10MB';
     }
 }
 
 function openFailModal(fails, truckNo){
-    document.getElementById('failModalTitle').textContent='รถเบอร์ '+truckNo+' — รายการที่ไม่ผ่าน ('+fails.length+' รายการ)';
+    document.getElementById('failModalTitle').textContent='รถเบอร์ '+truckNo+' — สาเหตุที่ไม่ผ่าน ('+fails.length+' รายการ)';
     let html='';
     fails.forEach(f=>{
-        html+=`<div class="fail-item"><div class="fail-dot"></div><div><div class="fail-item-name">${escHtml(f.name)}</div>${f.note?`<div class="fail-item-note"><i class="fa-solid fa-note-sticky" style="color:#f59e0b;margin-right:3px;"></i>${escHtml(f.note)}</div>`:''}</div></div>`;
+        html+=`<div class="fail-item"><div class="fail-dot"></div><div><div class="fail-item-name">${escHtml(f.name)}</div>${f.note?`<div class="fail-item-note"><i class="fa-solid fa-triangle-exclamation" style="color:#e11d48;margin-right:3px;"></i>สาเหตุ: ${escHtml(f.note)}</div>`:''}</div></div>`;
     });
     document.getElementById('failModalBody').innerHTML=html;
     document.getElementById('failModalOverlay').classList.add('show');
@@ -755,14 +1168,170 @@ function escHtml(s){ const d=document.createElement('div'); d.textContent=s; ret
 
 document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeFailModal(); } });
 
-// ── ปุ่ม submit: โชว์สถานะกำลังบันทึก (ฟอร์ม step2 ยังคง submit แบบปกติ ไม่ใช่ AJAX) ──
+// ── Validation หน้ากรอกผลตรวจ: ถ้ามีไม่ผ่าน บังคับกรอกสาเหตุ ──
 const checkForm = document.getElementById('checkForm');
+// ── Helper: บีบอัดรูปเป็น Base64 ในฝั่ง Client สำหรับโหมด Offline ──
+function fileToBase64Compressed(file, maxWidth = 800) {
+    return new Promise((resolve) => {
+        if (!file) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                let w = img.width;
+                let h = img.height;
+                if (w > maxWidth) {
+                    h = Math.round((h * maxWidth) / w);
+                    w = maxWidth;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', 0.75));
+            };
+            img.onerror = () => resolve(null);
+            img.src = e.target.result;
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+    });
+}
+
+// ── Form Submit: ตรวจสอบข้อมูล + ดึงพิกัด GPS + รองรับโหมดออฟไลน์ ──
 if(checkForm){
-    checkForm.addEventListener('submit', function(){
+    let isSubmitting = false;
+    checkForm.addEventListener('submit', async function(e){
+        if(isSubmitting) return;
+
+        // 1. ตรวจสอบสภาพแปลง
+        const fieldCond = document.getElementById('field_condition');
+        if(fieldCond && !fieldCond.value.trim()){
+            e.preventDefault();
+            fieldCond.focus();
+            Swal.fire({
+                icon: 'warning',
+                title: 'กรุณาเลือกสภาพแปลงอ้อย',
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#e11d48',
+                customClass: { popup: 'sa2-th' }
+            });
+            return false;
+        }
+
+        // 2. ตรวจสอบรายการที่ไม่ผ่าน
+        const failRadios = checkForm.querySelectorAll('.radio-btn[value="0"]:checked');
+        for (let r of failRadios) {
+            const row = r.closest('.check-row');
+            const textarea = row ? row.querySelector('.note-input') : null;
+            const itemName = row ? row.querySelector('.check-row-label').textContent.trim() : 'รายการที่ไม่ผ่าน';
+            if (textarea && !textarea.value.trim()) {
+                e.preventDefault();
+                textarea.focus();
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'กรุณากรอกสาเหตุที่ต้องแก้ไข',
+                    html: `กรุณาระบุรายละเอียด/สาเหตุของ <strong>"${escHtml(itemName)}"</strong> ก่อนบันทึกข้อมูล`,
+                    confirmButtonText: 'ตกลง',
+                    confirmButtonColor: '#e11d48',
+                    customClass: { popup: 'sa2-th' }
+                });
+                return false;
+            }
+        }
+
+        const latInp = document.getElementById('input_latitude');
+        const lngInp = document.getElementById('input_longitude');
         const btn = document.getElementById('submitBtn');
+
+        // 3. กรณีไม่มีสัญญาณอินเทอร์เน็ต (OFFLINE MODE) -> บันทึกลง IndexedDB ในเครื่อง
+        if (!navigator.onLine) {
+            e.preventDefault();
+            if(btn){
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down fa-spin"></i> กำลังบันทึกลงหน่วยความจำเครื่อง (ออฟไลน์)...';
+            }
+
+            const fileHv = (document.getElementById('img_harvester_cam')?.files[0]) || (document.getElementById('img_harvester_gal')?.files[0]);
+            const fileFd = (document.getElementById('img_field_cam')?.files[0]) || (document.getElementById('img_field_gal')?.files[0]);
+
+            const [b64Hv, b64Fd] = await Promise.all([
+                fileToBase64Compressed(fileHv),
+                fileToBase64Compressed(fileFd)
+            ]);
+
+            const items = [];
+            const itemRows = checkForm.querySelectorAll('.check-row');
+            itemRows.forEach(row => {
+                const okRadio = row.querySelector('input[type="radio"][value="1"]');
+                const pass = (okRadio && okRadio.checked) ? 1 : 0;
+                const iid = okRadio ? okRadio.name.replace('item_', '') : null;
+                const noteInp = row.querySelector('.note-input');
+                const note = noteInp ? noteInp.value.trim() : '';
+                if (iid) {
+                    items.push({ item_id: iid, pass: pass, note: note });
+                }
+            });
+
+            const offlineRecord = {
+                emp_id: "<?php echo addslashes($_SESSION['emp_id'] ?? ''); ?>",
+                harvester_number: "<?php echo addslashes($_SESSION['hv_truck_number'] ?? ''); ?>",
+                crop_year: "<?php echo addslashes($_SESSION['crop_year'] ?? ''); ?>",
+                field_condition: fieldCond ? fieldCond.value : 'ปกติ',
+                field_condition_etc: document.getElementById('field_condition_etc') ? document.getElementById('field_condition_etc').value : '',
+                latitude: latInp ? latInp.value : '',
+                longitude: lngInp ? lngInp.value : '',
+                location_name: '',
+                checked_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+                img_harvester_b64: b64Hv,
+                img_field_b64: b64Fd,
+                items: items
+            };
+
+            if (window.KTIS_OFFLINE) {
+                await KTIS_OFFLINE.saveInspectionOffline(offlineRecord);
+            }
+
+            Swal.fire({
+                icon: 'success',
+                title: 'บันทึกในโหมดออฟไลน์แล้ว 📥',
+                html: `ข้อมูลผลตรวจรถตัด <strong>${offlineRecord.harvester_number}</strong> ถูกจัดเก็บไว้ในมือถือแล้ว<br><small style="color:#64748b;margin-top:6px;display:block;">ระบบจะอัปโหลดขึ้นเซิร์ฟเวอร์ให้อัตโนมัติเมื่อมีสัญญาณอินเทอร์เน็ต</small>`,
+                confirmButtonText: 'ตกลง',
+                confirmButtonColor: '#10b981'
+            }).then(() => {
+                window.location.href = 'harvester.php?reset_truck=1';
+            });
+            return;
+        }
+
+        // 4. กรณีออนไลน์: ถ้ายังไม่ได้พิกัด GPS ให้พยายามดึงพิกัดด่วน 2.5 วินาที
+        if ((!latInp || !latInp.value) && navigator.geolocation) {
+            e.preventDefault();
+            if(btn){
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึกข้อมูล...';
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {
+                    if (latInp) latInp.value = pos.coords.latitude.toFixed(6);
+                    if (lngInp) lngInp.value = pos.coords.longitude.toFixed(6);
+                    isSubmitting = true;
+                    checkForm.submit();
+                },
+                function(err) {
+                    isSubmitting = true;
+                    checkForm.submit();
+                },
+                { enableHighAccuracy: true, timeout: 2500, maximumAge: 60000 }
+            );
+            return;
+        }
+        
         if(btn){
             btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึก...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> กำลังบันทึกข้อมูล...';
         }
     });
 }
@@ -788,117 +1357,51 @@ document.addEventListener('DOMContentLoaded', function(){
         title: 'เกิดข้อผิดพลาด',
         html: <?php echo json_encode($message, JSON_UNESCAPED_UNICODE); ?>,
         confirmButtonText: 'ปิด',
-        confirmButtonColor: '#e11d48'
+        confirmButtonColor: '#e11d48',
+        customClass: { popup: 'sa2-th' }
     });
 });
 <?php endif; ?>
-// Step 1 Form submit validation
-const step1Form = document.getElementById('step1Form');
-if (step1Form) {
-    step1Form.addEventListener('submit', function(e) {
-        const harvesterNum = document.getElementById('harvester_number').value;
-        const harvesterValid = document.getElementById('harvester_number').dataset.valid === 'true';
-        if (!harvesterNum || !harvesterValid) {
-            e.preventDefault();
-            Swal.fire({
-                icon: 'warning',
-                title: 'กรุณาเลือกข้อมูลจากดรอปดาวน์',
-                text: 'กรุณาค้นหาและเลือกเบอร์รถตัดจากดรอปดาวน์ที่ถูกต้อง',
-                confirmButtonText: 'ตกลง',
-                confirmButtonColor: '#10b981',
-                customClass: { popup: 'sa2-th' }
-            });
+
+// ══════════════════════════════════════════
+//  Auto Background GPS Capture (ดึงพิกัดอัตโนมัติขณะกรอกข้อมูล)
+// ══════════════════════════════════════════
+function autoCaptureGPS() {
+    if (!navigator.geolocation) return;
+    const latInp = document.getElementById('input_latitude');
+    const lngInp = document.getElementById('input_longitude');
+    const gpsLive = document.getElementById('gps-live-coords');
+    const gpsInd  = document.getElementById('gps-indicator');
+    if (!latInp || !lngInp) return;
+
+    navigator.geolocation.getCurrentPosition(
+        function(position) {
+            const lat = position.coords.latitude.toFixed(6);
+            const lng = position.coords.longitude.toFixed(6);
+            latInp.value = lat;
+            lngInp.value = lng;
+            if (gpsLive && gpsInd) {
+                gpsLive.textContent = `${lat}, ${lng}`;
+                gpsInd.style.opacity = '1';
+            }
+        },
+        function(err) {
+            // เก็บพิกัดไม่สำเร็จในพื้นหลัง ไม่รบกวนการทำงานของผู้ใช้
+        },
+        {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 60000
         }
-    });
+    );
 }
 
-// ══════════════════════════════════════════
-//  Autocomplete Harvester Number (สำหรับพนักงานดูแลรถตัด)
-// ══════════════════════════════════════════
+// เริ่มดึงพิกัดในพื้นหลังทันทีเมื่อเข้าหน้ากรอกข้อมูล
 document.addEventListener('DOMContentLoaded', function() {
-    const inputSearch = document.getElementById('harvester_search');
-    const inputHidden = document.getElementById('harvester_number');
-    const dropdown = document.getElementById('harvester_dropdown');
-    
-    if (!inputSearch) return;
-
-    let items = [];
-
-    // ค้นหาเมื่อผู้ใช้พิมพ์
-    inputSearch.addEventListener('input', function() {
-        const query = this.value.trim();
-        inputHidden.value = ''; // เคลียร์ค่าจริงเมื่อมีการแก้ไข
-        inputHidden.dataset.valid = 'false';
-
-        // ดึงเฉพาะรถตัดที่ผู้ใช้คนนี้ดูแล (assigned=1)
-        fetch('api_harvesters.php?assigned=1&q=' + encodeURIComponent(query))
-        .then(res => res.json())
-        .then(res => {
-            if (res.status === 'success') {
-                items = res.data;
-                populateDropdown(items);
-            }
-        })
-        .catch(err => console.error('Error fetching harvesters:', err));
-    });
-
-    // แสดง dropdown เมื่อโฟกัส
-    inputSearch.addEventListener('focus', function() {
-        const query = this.value.trim();
-        fetch('api_harvesters.php?assigned=1&q=' + encodeURIComponent(query))
-        .then(res => res.json())
-        .then(res => {
-            if (res.status === 'success') {
-                items = res.data;
-                populateDropdown(items);
-            }
-        });
-    });
-
-    function populateDropdown(list) {
-        dropdown.innerHTML = '';
-        
-        if (list.length === 0) {
-            dropdown.innerHTML = '<div class="autocomplete-no-result">ไม่พบข้อมูลรถตัดที่คุณดูแล</div>';
-            dropdown.style.display = 'block';
-            return;
-        }
-
-        list.forEach((item) => {
-            const div = document.createElement('div');
-            div.className = 'autocomplete-item';
-            
-            const displayName = item.harvester_name ? `${item.harvester_number} (${item.harvester_name})` : item.harvester_number;
-            div.textContent = displayName;
-            div.addEventListener('click', function(e) {
-                e.stopPropagation();
-                selectItem(item);
-            });
-            dropdown.appendChild(div);
-        });
-        dropdown.style.display = 'block';
+    if (document.getElementById('checkForm')) {
+        autoCaptureGPS();
     }
-
-    function selectItem(item) {
-        inputSearch.value = item.harvester_number;
-        inputHidden.value = item.harvester_number;
-        inputHidden.dataset.valid = 'true';
-        dropdown.style.display = 'none';
-        dropdown.innerHTML = '';
-    }
-
-    // ปิด dropdown เมื่อคลิกที่อื่นข้างนอก
-    document.addEventListener('click', function(e) {
-        if (e.target !== inputSearch && e.target !== dropdown && !dropdown.contains(e.target)) {
-            dropdown.style.display = 'none';
-        }
-    });
 });
-
 </script>
-<style>
-/* ปรับฟอนต์ SweetAlert ให้เป็น Sarabun ตามธีมระบบ */
-.swal2-popup.sa2-th, .swal2-popup { font-family:'Sarabun',sans-serif !important; }
-</style>
 </body>
 </html>

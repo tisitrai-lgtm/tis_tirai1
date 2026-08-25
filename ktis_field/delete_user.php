@@ -109,7 +109,8 @@ try {
     // ยืนยันการทำ Transaction
     $conn->commit();
 
-    header("Location: manage_users.php?success=ลบพนักงานคุณ " . urlencode($employee['emp_name']) . " และข้อมูลที่เกี่ยวข้องทั้งหมดสำเร็จ");
+    $_SESSION['flash_msg'] = "ลบพนักงานคุณ " . $employee['emp_name'] . " และข้อมูลที่เกี่ยวข้องทั้งหมดสำเร็จ";
+    header("Location: manage_users.php");
     exit;
 
 } catch (Exception $e) {
@@ -117,7 +118,8 @@ try {
     if ($conn->inTransaction()) {
         $conn->rollBack();
     }
-    header("Location: manage_users.php?error=เกิดข้อผิดพลาดในการลบข้อมูล: " . urlencode($e->getMessage()));
+    $_SESSION['flash_error'] = "เกิดข้อผิดพลาดในการลบข้อมูล: " . $e->getMessage();
+    header("Location: manage_users.php");
     exit;
 }
 ?>

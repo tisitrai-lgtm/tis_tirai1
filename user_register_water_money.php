@@ -306,6 +306,16 @@ $sql_h = "SELECT h.print_round, h.print_date, w.contract_number,
                                 </div>
                                 <?php endif; ?>
                             </div>
+
+                            <div id="plotPagination" class="d-flex justify-content-between align-items-center mt-2" style="display:none;">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="plotPrevBtn">
+                                    <i class='bx bx-chevron-left'></i> ก่อนหน้า
+                                </button>
+                                <span id="plotPageIndicator" class="small text-muted fw-bold"></span>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="plotNextBtn">
+                                    ถัดไป <i class='bx bx-chevron-right'></i>
+                                </button>
+                            </div>
                          </div>
                          <div class="modal-footer d-flex flex-column flex-md-row justify-content-between">
                              <span class="text-muted fw-bold mb-2 mb-md-0" id="selectedCountText">เลือกแล้ว: 0 แปลง</span>
@@ -342,19 +352,39 @@ $sql_h = "SELECT h.print_round, h.print_date, w.contract_number,
                 language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/th.json' }
             });
 
-            var DISPLAY_LIMIT = 20; // จำกัดจำนวนการ์ดที่แสดงพร้อมกัน กันเบราว์เซอร์หนักตอนเจอเป็นร้อย
+            var DISPLAY_LIMIT = 20; // จำนวนการ์ดที่แสดงต่อหน้า
             var MAX_SELECT = 20;    // จำกัดจำนวนแปลงที่เลือกได้สูงสุดต่อรอบการพิมพ์
 
-            // แสดงจำนวนแปลงที่พบ / ข้อความชี้นำ
-            function updatePlotCount(hasSearch, visible, totalMatched) {
+            var currentMatched = []; // ผลการค้นหาทั้งหมด (ไม่ตัดทิ้ง) ใช้แบ่งหน้า
+            var currentPage = 0;
+
+            // แสดงจำนวนแปลงที่พบทั้งหมด
+            function updatePlotCount(hasSearch, totalMatched) {
                 if (!hasSearch) {
                     $('#plotCountText').text('พิมพ์เลขที่สัญญาด้านบนเพื่อค้นหาแปลง');
-                } else if (visible === 0) {
+                } else if (totalMatched === 0) {
                     $('#plotCountText').text('ไม่พบแปลงของเลขสัญญานี้');
-                } else if (totalMatched > visible) {
-                    $('#plotCountText').text('พบ ' + totalMatched + ' แปลง — แสดง ' + visible + ' แปลงแรก (พิมพ์เลขสัญญาให้เจาะจงขึ้นเพื่อดูแปลงอื่น)');
                 } else {
-                    $('#plotCountText').text('พบ ' + visible + ' แปลง');
+                    $('#plotCountText').text('พบ ' + totalMatched + ' แปลง');
+                }
+            }
+
+            // แสดงการ์ดของหน้าปัจจุบัน (ตัดจาก currentMatched ทีละ DISPLAY_LIMIT) + อัปเดตปุ่มเปลี่ยนหน้า
+            function renderPlotPage() {
+                var start = currentPage * DISPLAY_LIMIT;
+                var pageItems = currentMatched.slice(start, start + DISPLAY_LIMIT);
+
+                $('.plot-item').hide();
+                pageItems.forEach(function(el) { $(el).show(); });
+
+                var totalPages = Math.max(1, Math.ceil(currentMatched.length / DISPLAY_LIMIT));
+                if (currentMatched.length > DISPLAY_LIMIT) {
+                    $('#plotPagination').show();
+                    $('#plotPageIndicator').text('หน้า ' + (currentPage + 1) + ' / ' + totalPages);
+                    $('#plotPrevBtn').prop('disabled', currentPage === 0);
+                    $('#plotNextBtn').prop('disabled', currentPage >= totalPages - 1);
+                } else {
+                    $('#plotPagination').hide();
                 }
             }
 
@@ -362,6 +392,9 @@ $sql_h = "SELECT h.print_round, h.print_date, w.contract_number,
             $('#pdfSelectionModal').on('show.bs.modal', function() {
                 $('.plot-item').hide();
                 $('#plotSearchInput').val('');
+                currentMatched = [];
+                currentPage = 0;
+                $('#plotPagination').hide();
                 updatePlotCount(false, 0);
             });
 
@@ -373,18 +406,21 @@ $sql_h = "SELECT h.print_round, h.print_date, w.contract_number,
                 $('#saveHistoryBtn').prop('disabled', true);
             });
 
-            // ต้องพิมพ์เลขที่สัญญาก่อน ถึงจะขึ้น ID แปลงของสัญญานั้น (จำกัดแสดงแค่ 20 แปลงแรกที่เจอ)
+            // ต้องพิมพ์เลขที่สัญญาก่อน ถึงจะขึ้น ID แปลงของสัญญานั้น (แบ่งหน้าแสดงทีละ 20 แปลง)
             $(document).on('keyup', '#plotSearchInput', function() {
                 var val = $(this).val().trim().toLowerCase();
                 var valNoZero = val.replace(/^0+/, '');
 
                 if (val === '') {
+                    currentMatched = [];
+                    currentPage = 0;
                     $('.plot-item').hide();
+                    $('#plotPagination').hide();
                     updatePlotCount(false, 0);
                     return;
                 }
 
-                // หาแปลงที่ตรงกับคำค้นหาทั้งหมดก่อน (ยังไม่โชว์)
+                // หาแปลงที่ตรงกับคำค้นหาทั้งหมด (เก็บไว้ทั้งหมด ไม่ตัดทิ้ง)
                 var matched = [];
                 $('.plot-item').each(function() {
                     var contract = ($(this).attr('data-contract') || '').toString().toLowerCase();
@@ -393,13 +429,26 @@ $sql_h = "SELECT h.print_round, h.print_date, w.contract_number,
                     if (match) matched.push(this);
                 });
 
-                // ซ่อนทุกอันก่อน แล้วโชว์แค่ DISPLAY_LIMIT อันแรกที่เจอ
-                $('.plot-item').hide();
-                matched.slice(0, DISPLAY_LIMIT).forEach(function(el) {
-                    $(el).show();
-                });
+                currentMatched = matched;
+                currentPage = 0;
+                renderPlotPage();
+                updatePlotCount(true, matched.length);
+            });
 
-                updatePlotCount(true, Math.min(matched.length, DISPLAY_LIMIT), matched.length);
+            // ปุ่มเปลี่ยนหน้า
+            $(document).on('click', '#plotPrevBtn', function() {
+                if (currentPage > 0) {
+                    currentPage--;
+                    renderPlotPage();
+                }
+            });
+
+            $(document).on('click', '#plotNextBtn', function() {
+                var totalPages = Math.ceil(currentMatched.length / DISPLAY_LIMIT);
+                if (currentPage < totalPages - 1) {
+                    currentPage++;
+                    renderPlotPage();
+                }
             });
 
             // คลิกที่กล่องทั้งใบเพื่อเลือก/ยกเลิกเลือกแปลง (แทน checkbox) — จำกัดเลือกได้สูงสุด MAX_SELECT แปลง

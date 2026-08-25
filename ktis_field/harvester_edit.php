@@ -7,7 +7,7 @@ require_once 'config.php';
 session_start();
 
 if(!isset($_SESSION["emp_id"])){ header("location: login.php"); exit; }
-if(($_SESSION['emp_level'] ?? 'u') === 'a'){ header("location: harvester_admin.php"); exit; }
+if(in_array($_SESSION['emp_level'] ?? 'u', ['a', 'm'])){ header("location: harvester_admin.php"); exit; }
 
 // ── ฟังก์ชัน upload รูป (เหมือนไฟล์หลัก) ──
 function uploadImage(string $field_name, string $base_dir): ?string {
@@ -17,7 +17,7 @@ function uploadImage(string $field_name, string $base_dir): ?string {
     if (!in_array($file['type'], $allowed)) return null;
     if ($file['size'] > 10*1024*1024) return null;
 
-    $date_folder = date('Y-m-d');
+    $date_folder = date('Y/m/d');
     $dir = rtrim($base_dir,'/').'/im_user_check/'.$date_folder.'/';
     if (!is_dir($dir)) mkdir($dir, 0755, true);
 
@@ -146,14 +146,7 @@ $thai_months=['','มกราคม','กุมภาพันธ์','มี�
 
 include 'includes/nav_u_header.php';
 ?>
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>แก้ไขผลตรวจรถตัดอ้อย - KTIS SMART FIELD</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 *{box-sizing:border-box;}
@@ -192,10 +185,24 @@ body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
 .meta-sep{color:#e2e8f0;}
 
 .field-label{display:block;font-weight:700;font-size:.83rem;color:#374151;margin-bottom:7px;}
-.field-label .req{color:#e11d48;}
-.form-input{width:100%;padding:11px 13px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.95rem;font-family:'Sarabun',sans-serif;background:#f8fafc;color:#1e293b;outline:none;transition:border-color .15s;}
-.form-input:focus{border-color:#f59e0b;background:#fff;}
-select.form-input{cursor:pointer;}
+.form-input{width:100%;padding:11px 14px;border:1.5px solid #e2e8f0;border-radius:12px;font-size:.95rem;font-weight:600;font-family:'Sarabun',sans-serif;background:#f8fafc;color:#1e293b;outline:none;transition:all .2s ease;}
+.form-input:focus{border-color:#f59e0b;background:#fff;box-shadow:0 0 0 3.5px rgba(245,158,11,.15);}
+select.form-input{
+    cursor:pointer;
+    height:48px;
+    appearance:none;
+    -webkit-appearance:none;
+    -moz-appearance:none;
+    background-color:#f8fafc;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='2.5' stroke='%23f59e0b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19.5 8.25l-7.5 7.5-7.5-7.5' /%3E%3C/svg%3E");
+    background-repeat:no-repeat;
+    background-position:right 14px center;
+    background-size:18px 18px;
+    padding-right:42px;
+    font-weight:700;
+    font-size:.95rem;
+}
+select.form-input option{background-color:#fff;color:#1e293b;font-weight:600;padding:10px;}
 .field-etc-wrap{margin-top:10px;display:none;}
 .field-etc-wrap.show{display:block;}
 
@@ -261,8 +268,6 @@ select.form-input{cursor:pointer;}
 }
 .swal2-popup.sa2-th, .swal2-popup { font-family:'Sarabun',sans-serif !important; }
 </style>
-</head>
-<body>
 <div class="content-wrapper">
 <div class="page-wrap">
 

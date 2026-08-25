@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 /**
  * dashboard.php — สรุปภาพรวมโพสต์/ปัญหาประจำวัน (Admin)
  */
@@ -180,6 +180,30 @@ form{margin:0;}
 select.fb-input{cursor:pointer;min-width:160px;}
 .btn-filter{padding:9px 18px;background:#6366f1;color:#fff;border:none;border-radius:7px;font-weight:700;font-size:.85rem;font-family:'Sarabun',sans-serif;cursor:pointer;}
 .btn-filter:hover{background:#4f46e5;}
+
+.btn-export-excel {
+    padding: 9px 14px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 7px;
+    font-weight: 700;
+    font-size: .85rem;
+    font-family: 'Sarabun', sans-serif;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+    white-space: nowrap;
+}
+.btn-export-excel:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    color: #ffffff;
+}
 .btn-shortcut{padding:5px 10px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:6px;font-size:.75rem;font-weight:700;font-family:'Sarabun',sans-serif;cursor:pointer;white-space:nowrap;transition:all .15s;}
 .btn-shortcut:hover{background:#ede9fe;color:#4f46e5;border-color:#c4b5fd;}
 
@@ -282,9 +306,9 @@ tbody tr:hover{background:#fafafa;}
     .filter-bar{flex-direction:column;align-items:stretch;}
 }
 </style>
-<div class="page-wrapper" style="display:flex;min-height:100vh;">
+<div class="page-wrapper">
 <?php include 'includes/nav_u_sidebar.php'; ?>
-<div class="dash-wrap" style="flex:1;padding:24px 28px;min-width:0;overflow-x:hidden;">
+<div class="dash-wrap">
     
 
 <!-- Header -->
@@ -355,6 +379,9 @@ tbody tr:hover{background:#fafafa;}
         <button type="submit" class="btn-filter">
             <i class="fa-solid fa-magnifying-glass"></i> ดูสรุป
         </button>
+        <a href="export_posts_excel.php?date=<?php echo urlencode($filter_date); ?>&date_end=<?php echo urlencode($filter_date_end); ?>&unit=<?php echo urlencode($filter_unit); ?>&crop_year=<?php echo urlencode($crop_year); ?>" class="btn-export-excel" title="ส่งออกรายงานปัญหาอ้อยเป็นไฟล์ Excel">
+            <i class="fa-solid fa-file-excel"></i> ส่งออก Excel
+        </a>
     </div>
 </form>
 

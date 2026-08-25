@@ -113,14 +113,7 @@ include 'includes/nav_u_header.php';
 $thai_months=['','มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
               'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 ?>
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>แจ้งปัญหา - TIS SMART FIELD</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <style>
 *{box-sizing:border-box;}
@@ -278,8 +271,6 @@ input[name="priority"]{display:none;}
 }
 </style>
 <link rel="stylesheet" href="global_smoothness.css">
-</head>
-<body>
 <div class="content-wrapper">
 <div class="pw">
 

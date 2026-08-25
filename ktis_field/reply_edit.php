@@ -64,7 +64,7 @@ try {
 
         $ext   = $allowed[$real_mime];
         $fname = 'reply_'.time().'_'.uniqid().'.'.$ext;
-        $dir   = 'uploads/'.date('Y-m-d').'/';
+        $dir   = 'uploads/'.date('Y/m/d').'/';
         if(!is_dir($dir)) mkdir($dir, 0777, true);
 
         if(move_uploaded_file($_FILES['reply_image']['tmp_name'], $dir.$fname)) {

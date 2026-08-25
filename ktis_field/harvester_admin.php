@@ -7,8 +7,10 @@ require_once 'config.php';
 session_start();
 
 if(!isset($_SESSION["emp_id"])){ header("location: login.php"); exit; }
-if($_SESSION['emp_level'] !== 'a'){ header("location: harvester.php"); exit; }
+if(!in_array($_SESSION['emp_level'] ?? 'u', ['a', 'm'])){ header("location: harvester.php"); exit; }
 
+$is_admin  = ($_SESSION['emp_level'] ?? '') === 'a';
+$is_mech   = ($_SESSION['emp_level'] ?? '') === 'm';
 $crop_year = $_SESSION['crop_year'];
 $thai_months=['','มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 $message = ""; $status = "";
@@ -21,9 +23,12 @@ if (isset($_SESSION['flash_msg'])) {
 
 $filter_date = $_GET['date'] ?? date('Y-m-d');
 $filter_unit = $_GET['unit'] ?? '';
+$filter_harvester = trim($_GET['harvester'] ?? ($_GET['h'] ?? ''));
 
-function redirect_harvester_admin(string $date, string $unit=''): void {
-    $q = ['date'=>$date]; if($unit!=='') $q['unit']=$unit;
+function redirect_harvester_admin(string $date, string $unit='', string $harvester=''): void {
+    $q = ['date'=>$date]; 
+    if($unit!=='') $q['unit']=$unit;
+    if($harvester!=='') $q['harvester']=$harvester;
     header("Location: harvester_admin.php?".http_build_query($q)); exit;
 }
 
@@ -36,14 +41,18 @@ foreach($all_cut_items as $it){ $grouped_cut_items[$it['section_label']][] = $it
 $field_items = [];
 try { $field_items = $conn->query("SELECT * FROM check_items_field ORDER BY item_id ASC")->fetchAll(); } catch(Exception $e){}
 
-// ── POST: delete / update ──
+// ── POST: delete / update (เฉพาะ Admin เท่านั้น) ──
 if($_SERVER['REQUEST_METHOD']==='POST'){
-    $action      = $_POST['action'] ?? '';
-    $session_id  = (int)($_POST['session_id'] ?? 0);
-    $return_date = $_POST['date'] ?? date('Y-m-d');
-    $return_unit = $_POST['unit'] ?? '';
+    $action           = $_POST['action'] ?? '';
+    $session_id       = (int)($_POST['session_id'] ?? 0);
+    $return_date      = $_POST['date'] ?? date('Y-m-d');
+    $return_unit      = $_POST['unit'] ?? '';
+    $return_harvester = $_POST['harvester'] ?? '';
 
     try {
+        if(!$is_admin){
+            throw new Exception("คุณไม่มีสิทธิ์แก้ไขหรือลบข้อมูล (เฉพาะ Admin เท่านั้น)");
+        }
         if($session_id <= 0) throw new Exception("ไม่พบรายการที่ต้องการจัดการ");
 
         if($action === 'delete'){
@@ -76,7 +85,7 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
         $_SESSION['flash_status']='error';
         $_SESSION['flash_msg']='เกิดข้อผิดพลาด: '.$e->getMessage();
     }
-    redirect_harvester_admin($return_date, $return_unit);
+    redirect_harvester_admin($return_date, $return_unit, $return_harvester);
 }
 
 // ── dropdown หน่วย ──
@@ -88,6 +97,15 @@ $all_units = $conn->query(
 $where  = "WHERE cs.crop_year=:cy AND DATE(cs.checked_at)=:dt";
 $params = [':cy'=>$crop_year, ':dt'=>$filter_date];
 if($filter_unit !== ''){ $where .= " AND e.emp_unit=:unit"; $params[':unit']=$filter_unit; }
+if($filter_harvester !== ''){
+    $where .= " AND (cs.harvester_number = :hn_exact OR cs.harvester_number = :hn_full OR cs.harvester_number = :hn_short OR cs.harvester_number LIKE :hn_like)";
+    $h_short = str_replace('รถตัดเบอร์ ', '', $filter_harvester);
+    $h_full  = !str_contains($filter_harvester, 'รถตัดเบอร์') ? "รถตัดเบอร์ " . $filter_harvester : $filter_harvester;
+    $params[':hn_exact'] = $filter_harvester;
+    $params[':hn_full']  = $h_full;
+    $params[':hn_short'] = $h_short;
+    $params[':hn_like']  = '%' . $h_short . '%';
+}
 
 $stmt = $conn->prepare(
     "SELECT cs.*, e.emp_name, e.emp_unit,
@@ -151,7 +169,10 @@ include 'includes/nav_u_header.php';
 <style>
 *{box-sizing:border-box;}
 body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
-.pw{max-width:1200px;margin:24px auto;padding:0 14px 60px;}
+.page-wrapper { display: flex; min-height: 100vh; width: 100%; align-items: flex-start; }
+.dash-wrap { flex: 1; padding: 24px 28px 60px; min-width: 0; overflow-x: hidden; }
+.content-wrapper { width: 100%; max-width: 100%; margin: 0 auto; }
+.pw { width: 100%; max-width: 100%; margin: 0; padding: 0 0 60px; }
 
 .ph{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;}
 .ph-left{display:flex;align-items:center;gap:12px;}
@@ -179,6 +200,195 @@ body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
 select.fb-input{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
 .btn-filter{padding:9px 18px;background:#e11d48;color:#fff;border:none;border-radius:7px;font-weight:700;font-size:.85rem;font-family:'Sarabun',sans-serif;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;}
 .btn-filter:hover{background:#be123c;}
+
+.btn-export-excel {
+    padding: 9px 14px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 7px;
+    font-weight: 700;
+    font-size: .85rem;
+    font-family: 'Sarabun', sans-serif;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 6px rgba(16, 185, 129, 0.25);
+    white-space: nowrap;
+}
+.btn-export-excel:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+    color: #ffffff;
+}
+
+/* 📥 Export Modal Popup Styles */
+.export-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 2147483648;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+.export-modal-overlay.show {
+    display: flex;
+    opacity: 1;
+}
+.export-modal-card {
+    background: #ffffff;
+    border-radius: 20px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    transform: translateY(20px) scale(0.97);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.export-modal-overlay.show .export-modal-card {
+    transform: translateY(0) scale(1);
+}
+.export-modal-hd {
+    background: #1e293b;
+    padding: 16px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 3px solid #10b981;
+}
+.em-title {
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.btn-em-close {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #94a3b8;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .15s;
+}
+.btn-em-close:hover {
+    background: #e11d48;
+    color: #fff;
+}
+.export-modal-bd {
+    padding: 20px;
+}
+.em-subtitle {
+    margin: 0 0 14px;
+    font-size: 0.84rem;
+    color: #64748b;
+}
+.em-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+.em-preset-btn {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+}
+.em-preset-btn:hover {
+    background: #d1fae5;
+    border-color: #10b981;
+    color: #065f46;
+}
+.em-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+.em-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.em-label {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #334155;
+}
+.em-input {
+    padding: 8px 12px;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 9px;
+    font-size: 0.88rem;
+    background: #f8fafc;
+    color: #1e293b;
+    outline: none;
+    font-family: inherit;
+}
+.em-input:focus {
+    border-color: #10b981;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(16,185,129,0.15);
+}
+.export-modal-ft {
+    padding: 14px 20px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.btn-em-cancel {
+    padding: 8px 16px;
+    background: #ffffff;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 9px;
+    color: #475569;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: inherit;
+}
+.btn-em-submit {
+    padding: 8px 18px;
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    border: none;
+    border-radius: 9px;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 0.88rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 12px rgba(16,185,129,0.3);
+    font-family: inherit;
+}
+.btn-em-submit:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(16,185,129,0.4);
+}
 
 .section-title{font-size:.88rem;font-weight:700;color:#1e293b;display:flex;align-items:center;gap:7px;margin-bottom:10px;}
 .section-title i{color:#94a3b8;}
@@ -297,6 +507,9 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
 
 
 
+@media(max-width:1024px){
+    .dash-wrap{padding:14px 14px 80px;}
+}
 @media(max-width:768px){
     .stats{grid-template-columns:repeat(2,1fr);}
     .filter-bar{flex-direction:column;align-items:stretch;}
@@ -306,10 +519,201 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
     .stats{grid-template-columns:1fr 1fr;}
     .unit-grid{grid-template-columns:1fr 1fr;}
 }
+
+/* ══════════════════════════════════════════
+   DARK MODE OVERRIDES
+   ══════════════════════════════════════════ */
+.dark-mode body,
+html.dark-mode body {
+    background: #090d16 !important;
+    color: #f1f5f9 !important;
+}
+.dark-mode .dash-wrap {
+    background: #090d16 !important;
+}
+.dark-mode .ph-title {
+    color: #f8fafc !important;
+}
+.dark-mode .ph-sub {
+    color: #94a3b8 !important;
+}
+.dark-mode .btn-today {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #cbd5e1 !important;
+}
+.dark-mode .btn-today:hover {
+    background: #334155 !important;
+    color: #f8fafc !important;
+}
+.dark-mode .stat-card {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+}
+.dark-mode .stat-num {
+    color: #f8fafc !important;
+}
+.dark-mode .stat-lbl {
+    color: #94a3b8 !important;
+}
+.dark-mode .filter-bar {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+}
+.dark-mode .fb-lbl {
+    color: #cbd5e1 !important;
+}
+.dark-mode .fb-input {
+    background: #0b1120 !important;
+    border-color: #1e293b !important;
+    color: #f8fafc !important;
+}
+.dark-mode .fb-input:focus {
+    border-color: #e11d48 !important;
+    background: #0f172a !important;
+}
+.dark-mode .section-title {
+    color: #f8fafc !important;
+}
+.dark-mode .unit-card {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+}
+.dark-mode .unit-name {
+    color: #f8fafc !important;
+}
+.dark-mode .card {
+    background: #131b2e !important;
+    border-color: #1e293b !important;
+}
+.dark-mode thead th {
+    background: #0b1120 !important;
+    color: #94a3b8 !important;
+    border-color: #1e293b !important;
+}
+.dark-mode tbody td {
+    color: #cbd5e1 !important;
+    border-color: #1e293b !important;
+}
+.dark-mode tbody tr.main-row:hover {
+    background: #1e293b !important;
+}
+.dark-mode .emp-n {
+    color: #f8fafc !important;
+}
+.dark-mode .emp-u {
+    color: #94a3b8 !important;
+}
+.dark-mode .hn {
+    color: #38bdf8 !important;
+}
+.dark-mode .row-fail {
+    background: rgba(245, 158, 11, 0.08) !important;
+}
+.dark-mode .row-fail:hover {
+    background: rgba(245, 158, 11, 0.15) !important;
+}
+.dark-mode .progress-track {
+    background: #1e293b !important;
+}
+.dark-mode .progress-text {
+    color: #cbd5e1 !important;
+}
+.dark-mode .detail-row {
+    background: #0b1120 !important;
+}
+.dark-mode .detail-box {
+    background: #0b1120 !important;
+}
+.dark-mode .detail-tab-btn {
+    background: #1e293b !important;
+    border-color: #334155 !important;
+    color: #cbd5e1 !important;
+}
+.dark-mode .detail-tab-btn.active {
+    background: #e11d48 !important;
+    border-color: #e11d48 !important;
+    color: #fff !important;
+}
+.dark-mode .dview-section-hd {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+}
+.dark-mode .dview-item {
+    color: #e2e8f0 !important;
+    border-color: #1e293b !important;
+}
+.dark-mode .dview-note {
+    background: rgba(245, 158, 11, 0.15) !important;
+    color: #fbbf24 !important;
+    border-left-color: #f59e0b !important;
+}
+.dark-mode .edit-lbl {
+    color: #94a3b8 !important;
+}
+.dark-mode .edit-input,
+.dark-mode .edit-select {
+    background: #131b2e !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+.dark-mode .edit-cut-hd {
+    background: rgba(16, 185, 129, 0.15) !important;
+    color: #34d399 !important;
+}
+.dark-mode .edit-cut-row {
+    border-color: #1e293b !important;
+}
+.dark-mode .edit-cut-label {
+    color: #e2e8f0 !important;
+}
+.dark-mode .edit-radio-label {
+    border-color: #334155 !important;
+    color: #94a3b8 !important;
+}
+.dark-mode .edit-note-input {
+    background: rgba(239, 68, 68, 0.1) !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+    color: #fca5a5 !important;
+}
+.dark-mode .missing-card {
+    background: #131b2e !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+}
+.dark-mode .miss-hd {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: rgba(239, 68, 68, 0.25) !important;
+}
+.dark-mode .miss-hd span {
+    color: #f87171 !important;
+}
+.dark-mode .miss-search-box {
+    background: #0b1120 !important;
+    border-color: #1e293b !important;
+}
+.dark-mode .miss-search-input {
+    background: #131b2e !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+}
+.dark-mode .miss-row {
+    border-color: #1e293b !important;
+}
+.dark-mode .miss-name {
+    color: #f8fafc !important;
+}
+.dark-mode .miss-unit {
+    color: #94a3b8 !important;
+}
+.dark-mode .miss-badge {
+    background: rgba(239, 68, 68, 0.15) !important;
+    color: #f87171 !important;
+    border-color: rgba(239, 68, 68, 0.3) !important;
+}
 </style>
-<div class="page-wrapper" style="display:flex;min-height:100vh;">
+<div class="page-wrapper">
 <?php include 'includes/nav_u_sidebar.php'; ?>
-<div class="dash-wrap" style="flex:1;padding:24px 28px;min-width:0;overflow-x:hidden;">
+<div class="dash-wrap">
 <div class="content-wrapper">
 <div class="pw">
 
@@ -365,7 +769,17 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                 <?php endforeach;?>
             </select>
         </div>
+        <div class="fb-group">
+            <span class="fb-lbl"><i class="fa-solid fa-tractor"></i> เบอร์รถตัด</span>
+            <input type="text" name="harvester" class="fb-input" placeholder="เช่น รถตัดเบอร์ 1" value="<?php echo htmlspecialchars($filter_harvester);?>">
+        </div>
         <button type="submit" class="btn-filter"><i class="fa-solid fa-magnifying-glass"></i> ค้นหา</button>
+        <button type="button" class="btn-export-excel" onclick="openExportModal('harvester')" title="เลือกช่วงวันที่เพื่อส่งออกรายงาน Excel">
+            <i class="fa-solid fa-file-excel"></i> ส่งออก Excel
+        </button>
+        <?php if($filter_unit !== '' || $filter_harvester !== '' || $filter_date !== date('Y-m-d')): ?>
+        <a href="harvester_admin.php?date=<?php echo date('Y-m-d'); ?>" class="btn-today" style="background:#f8fafc;" title="ล้างตัวกรอง"><i class="fa-solid fa-rotate-left"></i> ล้างตัวกรอง</a>
+        <?php endif; ?>
     </div>
 </form>
 
@@ -390,14 +804,15 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
         <span class="cnt-badge"><?php echo $total;?> รายการ</span>
     </div>
     <?php if(empty($rows)):?>
-    <div class="empty-s"><i class="fa-solid fa-clipboard-list"></i>ไม่มีข้อมูลในวันที่เลือก</div>
+    <div class="empty-s"><i class="fa-solid fa-clipboard-list"></i>ไม่มีข้อมูลในวันที่เลือก<?php echo $filter_harvester!=='' ? ' สำหรับ "'.htmlspecialchars($filter_harvester).'"' : ''; ?></div>
     <?php else:?>
     <div class="tbl-w">
         <table>
             <thead>
                 <tr>
                     <th>#</th><th>เวลา</th><th>ผู้บันทึก</th><th>เบอร์รถตัด</th>
-                    <th>สภาพแปลง</th><th>ผลตรวจ (19 รายการ)</th><th>สรุป</th><th>ภาพ</th><th>จัดการ</th>
+                    <th>สภาพแปลง</th><th>ผลตรวจ (19 รายการ)</th><th>สรุป</th><th>ภาพ</th>
+                    <?php if($is_admin): ?><th>จัดการ</th><?php endif; ?>
                 </tr>
             </thead>
             <tbody>
@@ -442,6 +857,7 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                         <?php if(empty($r['img_harvester']) && empty($r['img_field'])): ?><span style="color:#94a3b8;font-size:.78rem;">-</span><?php endif; ?>
                     </div>
                 </td>
+                <?php if($is_admin): ?>
                 <td onclick="event.stopPropagation();">
                     <div class="row-actions">
                         <form method="POST" action="harvester_admin.php" onsubmit="return confirm('ยืนยันลบรายการนี้?');" style="display:inline;">
@@ -449,16 +865,19 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                             <input type="hidden" name="session_id" value="<?php echo $sid;?>">
                             <input type="hidden" name="date" value="<?php echo htmlspecialchars($filter_date);?>">
                             <input type="hidden" name="unit" value="<?php echo htmlspecialchars($filter_unit);?>">
-                            <button type="submit" class="btn-mini btn-del"><i class="fa-solid fa-trash"></i></button>
+                            <input type="hidden" name="harvester" value="<?php echo htmlspecialchars($filter_harvester);?>">
+                            <button type="submit" class="btn-mini btn-del" title="ลบรายการ"><i class="fa-solid fa-trash"></i></button>
                         </form>
                     </div>
                 </td>
+                <?php endif; ?>
             </tr>
 
             <!-- Detail Row: View + Edit mode toggle -->
             <tr class="detail-row" id="detail-row-<?php echo $sid;?>">
-                <td colspan="9">
+                <td colspan="<?php echo $is_admin ? 9 : 8; ?>">
                     <div class="detail-box">
+                        <?php if($is_admin): ?>
                         <div class="detail-tabs">
                             <button type="button" class="detail-tab-btn active" id="tab-view-<?php echo $sid;?>" onclick="switchTab(<?php echo $sid;?>,'view')">
                                 <i class="fa-solid fa-eye"></i> ดูรายละเอียด
@@ -467,6 +886,11 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                                 <i class="fa-solid fa-pen"></i> แก้ไข
                             </button>
                         </div>
+                        <?php else: ?>
+                        <div style="font-weight:700; font-size:0.86rem; color:#1e293b; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+                            <i class="fa-solid fa-clipboard-list" style="color:#0284c7;"></i> รายละเอียดผลการตรวจเช็กรถตัด (19 รายการ)
+                        </div>
+                        <?php endif; ?>
 
                         <!-- VIEW MODE -->
                         <div class="detail-mode show" id="mode-view-<?php echo $sid;?>">
@@ -495,13 +919,15 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                             <?php endforeach; ?>
                         </div>
 
-                        <!-- EDIT MODE -->
+                        <?php if($is_admin): ?>
+                        <!-- EDIT MODE (เฉพาะ Admin เท่านั้น) -->
                         <div class="detail-mode" id="mode-edit-<?php echo $sid;?>">
                             <form method="POST" action="harvester_admin.php">
                                 <input type="hidden" name="action" value="update">
                                 <input type="hidden" name="session_id" value="<?php echo $sid;?>">
                                 <input type="hidden" name="date" value="<?php echo htmlspecialchars($filter_date);?>">
                                 <input type="hidden" name="unit" value="<?php echo htmlspecialchars($filter_unit);?>">
+                                <input type="hidden" name="harvester" value="<?php echo htmlspecialchars($filter_harvester);?>">
 
                                 <div class="edit-grid-top">
                                     <label class="edit-field">
@@ -512,7 +938,7 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                                         <span class="edit-lbl">สภาพแปลง</span>
                                         <select name="field_condition" class="edit-select">
                                             <option value="">-- เลือก --</option>
-                                            <?php foreach($field_items as $fi): ?>
+                                             <?php foreach($field_items as $fi): ?>
                                             <option value="<?php echo htmlspecialchars($fi['item_name_field']);?>" <?php echo ($r['field_condition']??'')===$fi['item_name_field']?'selected':'';?>>
                                                 <?php echo htmlspecialchars($fi['item_name_field']);?>
                                             </option>
@@ -552,6 +978,7 @@ tbody tr.main-row:hover{background:#fafafa;cursor:pointer;}
                                 </button>
                             </form>
                         </div>
+                        <?php endif; ?>
                     </div>
                 </td>
             </tr>
@@ -623,6 +1050,121 @@ function filterMissing() {
     
     let countDisplay = document.getElementById('miss-count-display');
     if(countDisplay) countDisplay.innerText = visibleCount;
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    <?php if(!empty($filter_harvester) && count($rows) > 0): ?>
+        // ถ้าค้นหา/ส่งเบอร์รถมาจากหน้าแดชบอร์ด ให้เปิดขยายรายละเอียดแถวแรกและเลื่อนจอไปหาอัตโนมัติ
+        const firstSid = <?php echo (int)$rows[0]['session_id']; ?>;
+        const autoRow = document.getElementById('detail-row-' + firstSid);
+        if(autoRow) {
+            autoRow.classList.add('show');
+            setTimeout(() => {
+                autoRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+        }
+    <?php endif; ?>
+});
+</script>
+
+<!-- 📥 Excel Export Date-Range Modal -->
+<div class="export-modal-overlay" id="exportModal" onclick="closeExportModal(event)">
+    <div class="export-modal-card" onclick="event.stopPropagation()">
+        <div class="export-modal-hd">
+            <div class="em-title">
+                <i class="fa-solid fa-file-excel" style="color:#10b981;"></i>
+                <span id="exportModalTitle">ส่งออกรายงานผลตรวจเช็กรถตัด (Excel)</span>
+            </div>
+            <button type="button" class="btn-em-close" onclick="closeExportModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="export-modal-bd">
+            <p class="em-subtitle">เลือกช่วงวันที่ที่ต้องการสรุปข้อมูลเพื่อดาวน์โหลดเป็นไฟล์ Excel (.xls)</p>
+            
+            <div class="em-presets">
+                <button type="button" class="em-preset-btn" onclick="setExportRange(0, 0)">วันนี้</button>
+                <button type="button" class="em-preset-btn" onclick="setExportRange(6, 0)">7 วันล่าสุด</button>
+                <button type="button" class="em-preset-btn" onclick="setExportRange(29, 0)">30 วันล่าสุด</button>
+                <button type="button" class="em-preset-btn" onclick="setExportMonthRange()">เดือนนี้</button>
+            </div>
+
+            <div class="em-grid">
+                <div class="em-field-group">
+                    <label class="em-label"><i class="fa-solid fa-calendar-day"></i> วันเริ่มต้น</label>
+                    <input type="date" id="emDateFrom" class="em-input" value="<?php echo htmlspecialchars($filter_date); ?>" max="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="em-field-group">
+                    <label class="em-label"><i class="fa-solid fa-calendar-check"></i> วันสิ้นสุด</label>
+                    <input type="date" id="emDateTo" class="em-input" value="<?php echo htmlspecialchars($filter_date); ?>" max="<?php echo date('Y-m-d'); ?>">
+                </div>
+            </div>
+
+            <div class="em-field-group" style="margin-top: 12px;">
+                <label class="em-label"><i class="fa-solid fa-location-dot"></i> หน่วยส่งเสริม (ระบุหรือไม่ระบุก็ได้)</label>
+                <select id="emUnit" class="em-input">
+                    <option value="">-- ทุกหน่วยส่งเสริม --</option>
+                    <?php foreach($all_units as $u): ?>
+                    <option value="<?php echo htmlspecialchars($u); ?>" <?php echo ($filter_unit===$u)?'selected':''; ?>><?php echo htmlspecialchars($u); ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+        </div>
+        <div class="export-modal-ft">
+            <button type="button" class="btn-em-cancel" onclick="closeExportModal()">ยกเลิก</button>
+            <button type="button" class="btn-em-submit" onclick="submitExportExcel()">
+                <i class="fa-solid fa-cloud-arrow-down"></i> ดาวน์โหลดรายงาน Excel
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+window.currentExportType = 'harvester';
+function openExportModal(type) {
+    window.currentExportType = type || 'harvester';
+    const overlay = document.getElementById('exportModal');
+    if (overlay) {
+        overlay.classList.add('show');
+    }
+}
+function closeExportModal(e) {
+    if (e && e.target !== e.currentTarget) return;
+    const overlay = document.getElementById('exportModal');
+    if (overlay) overlay.classList.remove('show');
+}
+function setExportRange(daysAgoFrom, daysAgoTo) {
+    const today = new Date();
+    const dFrom = new Date();
+    dFrom.setDate(today.getDate() - daysAgoFrom);
+    const dTo = new Date();
+    dTo.setDate(today.getDate() - daysAgoTo);
+    
+    document.getElementById('emDateFrom').value = dFrom.toISOString().split('T')[0];
+    document.getElementById('emDateTo').value = dTo.toISOString().split('T')[0];
+}
+function setExportMonthRange() {
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    document.getElementById('emDateFrom').value = `${y}-${m}-01`;
+    document.getElementById('emDateTo').value = today.toISOString().split('T')[0];
+}
+function submitExportExcel() {
+    const dateFrom = document.getElementById('emDateFrom').value;
+    const dateTo   = document.getElementById('emDateTo').value;
+    const unit     = document.getElementById('emUnit').value;
+    const cy       = "<?php echo htmlspecialchars($crop_year); ?>";
+    const hv       = "<?php echo htmlspecialchars($filter_harvester); ?>";
+    
+    if (!dateFrom || !dateTo) {
+        alert('กรุณาเลือกช่วงวันที่ให้ครบถ้วน');
+        return;
+    }
+    
+    const targetScript = (window.currentExportType === 'posts') ? 'export_posts_excel.php' : 'export_harvester_excel.php';
+    const url = `${targetScript}?date=${encodeURIComponent(dateFrom)}&date_end=${encodeURIComponent(dateTo)}&unit=${encodeURIComponent(unit)}&harvester=${encodeURIComponent(hv)}&crop_year=${encodeURIComponent(cy)}`;
+    
+    closeExportModal();
+    window.location.href = url;
 }
 </script>
 </body>

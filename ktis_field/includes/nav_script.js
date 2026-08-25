@@ -45,6 +45,15 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ── 3.1 Toggle Category Accordion ──
+    window.toggleNavCategory = function (e, btn) {
+        if (e) e.stopPropagation();
+        const group = btn.closest('.nav-category-group');
+        if (group) {
+            group.classList.toggle('open');
+        }
+    };
+
     // ── 4. คลิกข้างนอกปิดทุก dropdown ──
     document.addEventListener('click', function (e) {
         if (notiBox && !notiBox.contains(e.target) && e.target !== notiBtn) {
@@ -474,5 +483,92 @@ document.addEventListener('DOMContentLoaded', function () {
         pollNotifications(); // ครั้งแรก set _lastNotiCount
         setInterval(pollNotifications, 20000); // ทุก 20 วิ
     }
+
+    // ==========================================================================
+    // 🔔 2. GLOBAL MODERN TOAST NOTIFICATION SYSTEM
+    // ==========================================================================
+    window.showToast = function(arg1, arg2, duration = 3500) {
+        if (!arg1 && !arg2) return;
+        let msg = arg1;
+        let type = arg2 || 'success';
+        
+        // ถ้าส่งแบบ showToast('success', 'ข้อความ') หรือ showToast('error', 'ข้อความ')
+        if (['success', 'error', 'warning', 'info'].includes(arg1) && typeof arg2 === 'string') {
+            type = arg1;
+            msg = arg2;
+        }
+        if (!msg) return;
+
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            document.body.appendChild(container);
+        }
+
+        const toast = document.createElement('div');
+        toast.className = 'custom-toast';
+        
+        let iconClass = 'fa-check';
+        if (type === 'error')   iconClass = 'fa-circle-xmark';
+        if (type === 'warning') iconClass = 'fa-triangle-exclamation';
+        if (type === 'info')    iconClass = 'fa-circle-info';
+
+        toast.innerHTML = `
+            <div class="toast-icon ${type}"><i class="fa-solid ${iconClass}"></i></div>
+            <div class="toast-msg">${escapeHtml(msg)}</div>
+            <button type="button" class="toast-close" title="ปิด"><i class="fa-solid fa-xmark"></i></button>
+            <div class="toast-progress ${type}" style="animation-duration: ${duration}ms;"></div>
+        `;
+
+        container.appendChild(toast);
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+
+        const timer = setTimeout(() => {
+            toast.classList.remove('show');
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+
+        toast.querySelector('.toast-close').addEventListener('click', () => {
+            clearTimeout(timer);
+            toast.classList.remove('show');
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 300);
+        });
+    };
+
+    // Helper decode Thai text safely
+    function safeDecodeThai(val) {
+        if (!val) return '';
+        try {
+            return decodeURIComponent(val);
+        } catch(e) {
+            try {
+                return decodeURIComponent(escape(val));
+            } catch(e2) {
+                return val;
+            }
+        }
+    }
+
+    // Auto Toast from URL parameters (e.g. ?msg=... or ?success=... or ?error=...)
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.has('success') || urlParams.has('msg')) {
+            const rawMsg = urlParams.get('success') || urlParams.get('msg');
+            if (rawMsg && rawMsg !== '1' && rawMsg !== 'true') {
+                window.showToast(safeDecodeThai(rawMsg), 'success');
+            }
+        }
+        if (urlParams.has('error')) {
+            const rawErr = urlParams.get('error');
+            if (rawErr && rawErr !== '1' && rawErr !== 'true') {
+                window.showToast(safeDecodeThai(rawErr), 'error');
+            }
+        }
+    } catch(e) {}
 
 });

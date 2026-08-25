@@ -7,6 +7,8 @@ define('DB_USERNAME', 'root'); // เปลี่ยนเป็น Username ข
 define('DB_PASSWORD', '');     // เปลี่ยนเป็น Password ของ Server พี่
 define('DB_NAME', 'ktis_smart_field');
 
+date_default_timezone_set('Asia/Bangkok');
+
 // เชื่อมต่อด้วย PDO เพื่อความปลอดภัยและรองรับ PHP 8.2+
 try {
     $conn = new PDO("mysql:host=" . DB_SERVER . ";dbname=" . DB_NAME . ";charset=utf8mb4", DB_USERNAME, DB_PASSWORD);

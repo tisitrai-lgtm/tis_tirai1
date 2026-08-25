@@ -7,7 +7,7 @@ require_once 'config.php';
 session_start();
 
 if(!isset($_SESSION["emp_id"])){ header("location: login.php"); exit; }
-if(($_SESSION['emp_level'] ?? 'u') === 'a'){ header("location: harvester_admin.php"); exit; }
+if(in_array($_SESSION['emp_level'] ?? 'u', ['a', 'm'])){ header("location: harvester_admin.php"); exit; }
 
 $session_id = (int)($_GET['id'] ?? 0);
 if(!$session_id){ header("Location: harvester.php"); exit; }
@@ -62,14 +62,7 @@ try {
 
 include 'includes/nav_u_header.php';
 ?>
-<!DOCTYPE html>
-<html lang="th">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ลบผลตรวจรถตัดอ้อย - KTIS SMART FIELD</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;}
 body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
@@ -113,8 +106,6 @@ body{font-family:'Sarabun',sans-serif;background:#f1f5f9;margin:0;}
 
 .swal2-popup{font-family:'Sarabun',sans-serif !important;}
 </style>
-</head>
-<body>
 <div class="content-wrapper">
 <div class="page-wrap">
 
